@@ -112,7 +112,7 @@ func Extract(buf []byte, deadline time.Time) (res Result) {
 	switch {
 	case bytes.HasPrefix(buf, oleMagic):
 		res.IsDoc = true
-		fromOLE(buf, &res)
+		fromOLE(buf, &res, deadline)
 	case bytes.HasPrefix(buf, zipMagic):
 		res.IsDoc = true
 		fromOOXML(buf, &res, deadline)
@@ -122,8 +122,21 @@ func Extract(buf []byte, deadline time.Time) (res Result) {
 
 // fromOLE handles an OLE2/CFB buffer: a legacy .doc/.xls, a bare vbaProject.bin,
 // or an encrypted-OOXML wrapper. It parses the compound file once, then either
-// flags encryption or decompresses the VBA streams.
-func fromOLE(buf []byte, res *Result) {
+// flags encryption or decompresses the VBA streams. Unlike the OOXML loop this
+// is single-shot (one NewOLEFile + ExtractMacros) so it can't be interrupted
+// mid-parse; instead it refuses to start when the budget is already spent or the
+// legacy container is implausibly large — the raw scan still happens either way.
+func fromOLE(buf []byte, res *Result, deadline time.Time) {
+	if !deadline.IsZero() && time.Now().After(deadline) {
+		res.Failed = true
+		return
+	}
+	if len(buf) > maxTotalBin {
+		// A multi-tens-of-MiB legacy OLE is not a normal mail macro doc; skip the
+		// (uninterruptible) parse rather than risk a long stall. Raw scan stands.
+		res.Failed = true
+		return
+	}
 	ole, err := oleparse.NewOLEFile(buf)
 	if err != nil {
 		res.Failed = true

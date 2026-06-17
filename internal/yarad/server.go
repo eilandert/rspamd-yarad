@@ -48,9 +48,11 @@ type Server struct {
 	engine  ScanEngine
 	cache   Cache
 	flights flightGroup
-	sem     chan struct{}
+	admit   chan struct{} // admission gate: bounds in-flight buffers (held whole request)
+	sem     chan struct{} // scan-CPU gate: held only around the libyara scan
 	metrics struct {
 		scans, matches, errors, busy        atomic.Uint64
+		canceled                            atomic.Uint64
 		cacheHit, cacheMiss, cacheCoalesced atomic.Uint64
 	}
 	info *log.Logger // access/info — stdout when YARAD_LOG_STDOUT, else stderr
@@ -77,6 +79,7 @@ func NewServer(cfg *Config, engine ScanEngine) *Server {
 	s := &Server{
 		cfg:    cfg,
 		engine: engine,
+		admit:  make(chan struct{}, cfg.MaxInflight),
 		sem:    make(chan struct{}, cfg.MaxConcurrent),
 		info:   info,
 		errl:   errl,
@@ -143,9 +146,9 @@ func (s *Server) logStartup(addr string) {
 			cache = "redis+memory"
 		}
 	}
-	s.logf("listening on %s (rules=%d, timeout=%s, scan_timeout=%s, max_concurrent=%d, max_body=%dB, cache=%s ttl=%s size=%d, auth=%t)",
+	s.logf("listening on %s (rules=%d, timeout=%s, scan_timeout=%s, max_concurrent=%d, max_inflight=%d, max_body=%dB, cache=%s ttl=%s size=%d, auth=%t)",
 		addr, s.engine.RuleCount(), s.cfg.BackendTimeout, s.cfg.ScanTimeout,
-		s.cfg.MaxConcurrent, s.cfg.MaxBody, cache, s.cfg.CacheTTL, s.cfg.CacheSize, s.cfg.Token != "")
+		s.cfg.MaxConcurrent, s.cfg.MaxInflight, s.cfg.MaxBody, cache, s.cfg.CacheTTL, s.cfg.CacheSize, s.cfg.Token != "")
 
 	// Worst-case request-buffer memory: each in-flight scan can hold a full body
 	// plus its extracted macro streams, on top of the loaded-rules RSS. Surface
@@ -154,14 +157,16 @@ func (s *Server) logStartup(addr string) {
 	// reserve far more buffer memory than a small mem_limit allows (memory != rule
 	// count). When the cgroup memory limit is known, warn if the buffers alone
 	// would take more than half of it (leaving no room for rules RSS + GC + burst).
-	peakMiB := (int64(s.cfg.MaxConcurrent) * s.cfg.MaxBody) >> 20
-	s.logf("est. peak request-buffer memory ~%d MiB (max_concurrent=%d × max_body=%d MiB) on top of rules RSS",
-		peakMiB, s.cfg.MaxConcurrent, s.cfg.MaxBody>>20)
+	// In-flight buffers are bounded by the admission gate (MaxInflight), not the
+	// scan gate, so size the estimate on that.
+	peakMiB := (int64(s.cfg.MaxInflight) * s.cfg.MaxBody) >> 20
+	s.logf("est. peak request-buffer memory ~%d MiB (max_inflight=%d × max_body=%d MiB) on top of rules RSS",
+		peakMiB, s.cfg.MaxInflight, s.cfg.MaxBody>>20)
 	if limitMiB := cgroupMemLimitMiB(); limitMiB > 0 && peakMiB > limitMiB/2 {
-		s.errf("WARNING: request buffers alone (~%d MiB) exceed half the %d MiB container memory limit; lower YARAD_MAX_CONCURRENT (or set a number instead of auto) / YARAD_MAX_BODY, or raise mem_limit",
+		s.errf("WARNING: request buffers alone (~%d MiB) exceed half the %d MiB container memory limit; lower YARAD_MAX_INFLIGHT/YARAD_MAX_CONCURRENT or YARAD_MAX_BODY, or raise mem_limit",
 			peakMiB, limitMiB)
 	} else if limitMiB == 0 && peakMiB > 512 {
-		s.errf("WARNING: max_concurrent × max_body alone is ~%d MiB of buffers; lower YARAD_MAX_CONCURRENT or YARAD_MAX_BODY", peakMiB)
+		s.errf("WARNING: max_inflight × max_body alone is ~%d MiB of buffers; lower YARAD_MAX_INFLIGHT or YARAD_MAX_BODY", peakMiB)
 	}
 	s.logf("repo: %s", RepoURL)
 }
@@ -267,20 +272,35 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Acquire a concurrency slot before buffering the body so a burst of large
-	// uploads can't hold unbounded memory while never consuming a slot.
-	if !s.acquire() {
+	ctx := r.Context()
+
+	// Admission gate: bounds the number of in-flight request buffers (memory),
+	// held for the WHOLE request. It is separate from the scan-CPU gate so a slow
+	// body upload or a slow Redis L2 lookup occupies an admission slot but NOT a
+	// scarce scan slot. Cancel early if the client has already gone away.
+	if !s.acquireOn(ctx, s.admit) {
+		if ctx.Err() != nil {
+			s.metrics.canceled.Add(1)
+			return // client disconnected/timed out while queued
+		}
 		s.metrics.busy.Add(1)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "busy"})
-		s.errf("/scan 503 busy (max_concurrent=%d reached)", s.cfg.MaxConcurrent)
+		s.errf("/scan 503 busy (max_inflight=%d reached)", s.cfg.MaxInflight)
 		return
 	}
-	defer func() { <-s.sem }()
+	defer func() { <-s.admit }()
 
 	buf := make([]byte, int(length))
 	if _, err := io.ReadFull(r.Body, buf); err != nil {
 		s.metrics.errors.Add(1)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "read error"})
+		return
+	}
+
+	// The client may have timed out / disconnected during a slow body read. Don't
+	// burn a scan slot on a verdict nobody will read.
+	if ctx.Err() != nil {
+		s.metrics.canceled.Add(1)
 		return
 	}
 
@@ -291,7 +311,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	// that changes the rules invalidates old verdicts in both L1 and Redis L2
 	// (old keys orphan and TTL-expire; no stale "clean" after a rule update).
 	key := s.engine.Fingerprint() + ":" + sha256key(buf)
-	matches, cacheStatus := s.lookupOrScan(key, buf)
+	matches, cacheStatus := s.lookupOrScan(ctx, key, buf)
 
 	if len(matches) > 0 {
 		s.metrics.matches.Add(1)
@@ -321,7 +341,9 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 // in-flight identical scan, or a fresh scan whose result is cached. At high
 // volume the cache + coalescing collapse a bulk campaign's N identical messages
 // into a single scan. Returns the matches and a cache-status label for logs.
-func (s *Server) lookupOrScan(key string, buf []byte) ([]Match, string) {
+func (s *Server) lookupOrScan(ctx context.Context, key string, buf []byte) ([]Match, string) {
+	// Cache lookup (L1 + Redis L2) runs OUTSIDE the scan-CPU gate, so a slow Redis
+	// can't hold a scan slot; the L2 circuit breaker bounds it further.
 	if m, found := s.cache.Get(key); found {
 		s.metrics.cacheHit.Add(1)
 		return m, "hit"
@@ -333,6 +355,15 @@ func (s *Server) lookupOrScan(key string, buf []byte) ([]Match, string) {
 			return m
 		}
 		s.metrics.cacheMiss.Add(1)
+		// Take the scan-CPU slot only for the actual libyara scan. If it can't be
+		// had within the budget (or the client is gone), fail open as "no match"
+		// — never block mail — and do NOT cache (no real verdict was computed).
+		if !s.acquireOn(ctx, s.sem) {
+			s.metrics.busy.Add(1)
+			s.errf("/scan %dB no scan slot within budget (fail-open)", len(buf))
+			return nil
+		}
+		defer func() { <-s.sem }()
 		m, scanErr := s.dispatch(buf)
 		if scanErr != nil {
 			// Fail open: a scan error is "no match" to the plugin so a scanner
@@ -367,18 +398,24 @@ func (s *Server) dispatch(buf []byte) (matches []Match, err error) {
 	return s.engine.Scan(buf)
 }
 
-func (s *Server) acquire() bool {
+// acquireOn takes a slot from sem within BackendTimeout, returning early (false)
+// if the client's request context is cancelled — it disconnected or timed out,
+// so there is no point queueing work for it. The caller distinguishes "busy"
+// from "client gone" via ctx.Err().
+func (s *Server) acquireOn(ctx context.Context, sem chan struct{}) bool {
 	select {
-	case s.sem <- struct{}{}:
+	case sem <- struct{}{}:
 		return true
 	default:
 	}
 	timer := time.NewTimer(s.cfg.BackendTimeout)
 	defer timer.Stop()
 	select {
-	case s.sem <- struct{}{}:
+	case sem <- struct{}{}:
 		return true
 	case <-timer.C:
+		return false
+	case <-ctx.Done():
 		return false
 	}
 }
@@ -410,6 +447,7 @@ func (s *Server) serveMetrics(w http.ResponseWriter) {
 	fm("matches_total", "/scan requests with >=1 rule match", s.metrics.matches.Load())
 	fm("errors_total", "scan/read/length errors", s.metrics.errors.Load())
 	fm("busy_total", "requests rejected by the concurrency gate", s.metrics.busy.Load())
+	fm("canceled_total", "requests abandoned because the client disconnected/timed out", s.metrics.canceled.Load())
 	fm("cache_hits_total", "verdicts served from cache", s.metrics.cacheHit.Load())
 	fm("cache_misses_total", "scans that ran (cache miss)", s.metrics.cacheMiss.Load())
 	fm("cache_coalesced_total", "scans coalesced onto an in-flight identical scan", s.metrics.cacheCoalesced.Load())

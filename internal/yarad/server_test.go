@@ -60,6 +60,25 @@ func TestVersionEndpoint(t *testing.T) {
 	}
 }
 
+// A client that has already disconnected/timed out must not consume a scan: the
+// request is counted as canceled and the engine is never called.
+func TestScanClientCanceled(t *testing.T) {
+	eng := &fakeEngine{count: 1}
+	s := newTestServer(eng, "tok")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest(http.MethodPost, "/scan", bytes.NewReader([]byte("body"))).WithContext(ctx)
+	r.Header.Set("Content-Length", "4")
+	r.Header.Set("X-YARAD-Token", "tok")
+	s.ServeHTTP(httptest.NewRecorder(), r)
+	if got := s.metrics.canceled.Load(); got != 1 {
+		t.Errorf("canceled=%d want 1", got)
+	}
+	if got := eng.scans.Load(); got != 0 {
+		t.Errorf("engine scanned for a canceled client: %d", got)
+	}
+}
+
 func TestShutdownSetsDraining(t *testing.T) {
 	s := newTestServer(&fakeEngine{count: 1}, "tok")
 	// Shutdown before ListenAndServe has stored a server: returns nil, still

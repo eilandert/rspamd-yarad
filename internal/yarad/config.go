@@ -24,6 +24,7 @@ type Config struct {
 	Port           int           // YARAD_PORT            (default 8079)
 	BackendTimeout time.Duration // YARAD_BACKEND_TIMEOUT (default 6s)
 	MaxConcurrent  int           // YARAD_MAX_CONCURRENT  (default "auto" = CPU count)
+	MaxInflight    int           // YARAD_MAX_INFLIGHT    (default 2×MaxConcurrent); admission gate
 	MaxBody        int64         // YARAD_MAX_BODY bytes  (default 8 MiB)
 	Token          string        // YARAD_TOKEN[_FILE]    (required for /scan)
 
@@ -61,6 +62,7 @@ func LoadConfig() *Config {
 		Port:           envInt("YARAD_PORT", 8079),
 		BackendTimeout: envDur("YARAD_BACKEND_TIMEOUT", 6),
 		MaxConcurrent:  envIntAuto("YARAD_MAX_CONCURRENT", runtime.NumCPU()),
+		MaxInflight:    envIntAuto("YARAD_MAX_INFLIGHT", 0), // 0 -> sanitize sets 2×MaxConcurrent
 		MaxBody:        envInt64("YARAD_MAX_BODY", 8*1024*1024),
 		Token:          envOrFile("YARAD_TOKEN"),
 		RulesDir:       envStr("YARAD_RULES_DIR", "/rules"),
@@ -87,6 +89,12 @@ func (c *Config) sanitize() {
 	}
 	if c.MaxConcurrent < 1 {
 		c.MaxConcurrent = clamp("YARAD_MAX_CONCURRENT", c.MaxConcurrent, runtime.NumCPU())
+	}
+	// The admission gate bounds in-flight buffers and must be at least the scan
+	// concurrency (otherwise scan slots could never all be used). Default to 2×
+	// so a slow body read or slow Redis L2 lookup can't starve scan slots.
+	if c.MaxInflight < c.MaxConcurrent {
+		c.MaxInflight = c.MaxConcurrent * 2
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		c.Port = clamp("YARAD_PORT", c.Port, 8079)

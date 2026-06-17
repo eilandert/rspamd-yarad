@@ -118,7 +118,8 @@ over env, env wins over the default.
 | `YARAD_RULES` | — | a precompiled `.yac` bundle; loaded instead of `RULES_DIR` (faster start) |
 | `YARAD_SCAN_TIMEOUT` | `10` (s) | per-scan libyara budget |
 | `YARAD_BACKEND_TIMEOUT` | `6` (s) | per-request budget / how long to wait for a concurrency slot |
-| `YARAD_MAX_CONCURRENT` | `auto` (CPU count) | max scans in flight at once; `auto` = CPU count |
+| `YARAD_MAX_CONCURRENT` | `auto` (CPU count) | max concurrent libyara scans (CPU gate); `auto` = CPU count |
+| `YARAD_MAX_INFLIGHT` | `auto` (2× concurrent) | max in-flight requests/buffers (admission gate); kept above the scan gate so a slow body/Redis can't starve scan slots |
 | `YARAD_MAX_BODY` | `8388608` (8 MiB) | max request body, in bytes |
 | `YARAD_CACHE_TTL` | `600` (s) | verdict cache TTL; `0` disables caching entirely |
 | `YARAD_CACHE_SIZE` | `65536` | in-memory LRU entries |
