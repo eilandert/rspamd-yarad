@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,6 +80,67 @@ func TestScanClientCanceled(t *testing.T) {
 	}
 	if got := eng.scans.Load(); got != 0 {
 		t.Errorf("engine scanned for a canceled client: %d", got)
+	}
+}
+
+type blockingBody struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingBody) Read([]byte) (int, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return 0, io.ErrUnexpectedEOF
+}
+
+// A slow authenticated upload may hold an admission/buffer slot, but it must not
+// hold the scarce scan-CPU slot before the body has been read. Otherwise one
+// slow client per scan slot can starve real scans.
+func TestSlowBodyDoesNotHoldScanSlot(t *testing.T) {
+	eng := &fakeEngine{count: 1}
+	cfg := &Config{
+		Token:          "tok",
+		MaxConcurrent:  1,
+		MaxInflight:    2,
+		MaxBody:        1 << 20,
+		BackendTimeout: 20 * time.Millisecond,
+		CacheTTL:       0,
+	}
+	cfg.sanitize()
+	s := NewServer(cfg, eng)
+
+	body := &blockingBody{started: make(chan struct{}), release: make(chan struct{})}
+	r := httptest.NewRequest(http.MethodPost, "/scan", body)
+	r.Header.Set("Content-Length", "4")
+	r.Header.Set("X-YARAD-Token", "tok")
+
+	done := make(chan struct{})
+	go func() {
+		s.ServeHTTP(httptest.NewRecorder(), r)
+		close(done)
+	}()
+
+	select {
+	case <-body.started:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not reach body read")
+	}
+
+	w := post(s, "fast", map[string]string{"X-YARAD-Token": "tok"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("fast scan behind slow body = %d, want 200", w.Code)
+	}
+	if got := eng.scans.Load(); got != 1 {
+		t.Fatalf("fast request did not scan exactly once; scans=%d", got)
+	}
+
+	close(body.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("slow request did not finish after release")
 	}
 }
 

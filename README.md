@@ -116,8 +116,8 @@ over env, env wins over the default.
 | `YARAD_TOKEN[_FILE]` | — | shared secret for `/scan`; unset ⇒ every POST is `503` |
 | `YARAD_RULES_DIR` | `/rules` | directory of `*.yar`/`*.yara` compiled at boot and on SIGHUP |
 | `YARAD_RULES` | — | a precompiled `.yac` bundle; loaded instead of `RULES_DIR` (faster start) |
-| `YARAD_SCAN_TIMEOUT` | `10` (s) | per-scan libyara budget |
-| `YARAD_BACKEND_TIMEOUT` | `6` (s) | per-request budget / how long to wait for a concurrency slot |
+| `YARAD_SCAN_TIMEOUT` | `8` (s) | per-scan libyara budget |
+| `YARAD_BACKEND_TIMEOUT` | `1` (s) | queue budget / how long to wait for an admission or scan slot |
 | `YARAD_MAX_CONCURRENT` | `auto` (CPU count) | max concurrent libyara scans (CPU gate); `auto` = CPU count |
 | `YARAD_MAX_INFLIGHT` | `auto` (2× concurrent) | max in-flight requests/buffers (admission gate); kept above the scan gate so a slow body/Redis can't starve scan slots |
 | `YARAD_MAX_BODY` | `8388608` (8 MiB) | max request body, in bytes |
@@ -242,4 +242,3 @@ The [`rspamd/`](rspamd/) directory has everything the rspamd side needs:
 [MIT](LICENSE). Baked rule sets keep their own licenses (YARA-Forge core,
 signature-base, ANY.RUN, bartblaze = permissive; Didier Stevens = public
 domain).
-

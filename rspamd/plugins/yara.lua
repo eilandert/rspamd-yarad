@@ -34,9 +34,9 @@ local settings = {
   token_file = "",             -- path to a file holding the token (preferred over
                                -- inline `token`; keeps the secret out of config)
   -- This must cover yarad's worst-case response: the time to acquire a scan slot
-  -- (YARAD_BACKEND_TIMEOUT) PLUS the scan itself (YARAD_SCAN_TIMEOUT). With yarad
-  -- defaults (6s + 10s) that is up to 16s; for mail, lower yarad's two timeouts
-  -- so their sum fits THIS budget (e.g. BACKEND_TIMEOUT=2 + SCAN_TIMEOUT=8 = 10s).
+  -- (YARAD_BACKEND_TIMEOUT) PLUS the scan itself (YARAD_SCAN_TIMEOUT). yarad's
+  -- defaults are intentionally aligned to fit this: 1s queue + 8s scan = 9s,
+  -- leaving a little HTTP/JSON overhead before this 10s client timeout expires.
   -- A plugin timeout below that sum just abandons scans that are still running.
   timeout = 10.0,
   max_size = 8 * 1024 * 1024,  -- don't ship bodies larger than this to yarad
