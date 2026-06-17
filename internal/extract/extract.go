@@ -33,7 +33,7 @@ import (
 // oleparse upgrade that changes output) invalidates cached verdicts the same
 // way a rule-set change does — important for the shared Redis L2 that survives
 // an image rebuild. Bump it whenever the bytes Extract emits could change.
-const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg"
+const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk"
 
 // OLE2/CFB compound-document magic (legacy .doc/.xls, the vbaProject.bin
 // embedded in OOXML, AND the encrypted-OOXML wrapper) and the local-file-header
@@ -132,6 +132,9 @@ type Result struct {
 	// message store) and its nested attachment data streams were pulled out for
 	// scanning.
 	IsMSG bool
+	// IsLNK is true when buf was a Windows shell link (.lnk) whose StringData
+	// fields (command-line arguments, paths) were surfaced for scanning.
+	IsLNK bool
 	// IsOLEPackage is true when an OLE2 document carried an embedded OLE Package
 	// object (Ole10Native stream) whose native file data was carved out.
 	IsOLEPackage bool
@@ -188,6 +191,12 @@ func Extract(buf []byte, deadline time.Time) (res Result) {
 		// opaque outer bytes.
 		res.IsDoc = true
 		fromArchive(buf, &res, &archiveBudget{}, 0)
+	case isLNK(buf):
+		// A Windows shell link (.lnk): surface its StringData (command-line
+		// arguments / paths) so the dropper command is matched, not buried in the
+		// SHLLINK binary.
+		res.IsDoc = true
+		fromLNK(buf, &res)
 	case isOneNote(buf):
 		// A standalone OneNote section (.one) — neither OLE2 nor ZIP. Carve its
 		// embedded FileDataStoreObject payloads (the maldoc delivery vector).

@@ -38,6 +38,14 @@ func FuzzExtract(f *testing.F) {
 	// walk's bounds checks on hostile/short input.
 	f.Add(append(append([]byte{}, oleMagic...),
 		[]byte{0x10, 0, 0, 0, 0x02, 0, 'a', 0, 'b', 0, 0, 0, 0, 0}...))
+	// .lnk magic + flags claiming IDList/LinkInfo/Arguments then junk — fuzz the
+	// SHLLINK section walk and StringData bounds checks.
+	{
+		h := make([]byte, lnkHeaderSize)
+		copy(h, lnkMagic)
+		h[lnkFlagsOff] = byte(lnkHasLinkTargetIDList | lnkHasLinkInfo | lnkHasArguments | lnkIsUnicode)
+		f.Add(append(h, bytes.Repeat([]byte{0xFF}, 32)...))
+	}
 	f.Add([]byte{})
 	f.Add([]byte("plain text"))
 

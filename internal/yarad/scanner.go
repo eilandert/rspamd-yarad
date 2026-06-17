@@ -60,6 +60,7 @@ type Scanner struct {
 	exOneNote                                                         atomic.Uint64 // buffers recognised as OneNote .one (embedded files carved)
 	exArchive                                                         atomic.Uint64 // buffers recognised as an archive (zip/gz/7z/rar/tar; members unpacked)
 	exOLEPackage                                                      atomic.Uint64 // OLE2 docs with an embedded OLE Package object (Ole10Native carved)
+	exLNK                                                             atomic.Uint64 // Windows shell links (.lnk) with StringData surfaced
 	exEncodedScript                                                   atomic.Uint64 // buffers with >=1 decoded MS-Script-Encoder block
 	exStreamMatches                                                   atomic.Uint64 // distinct rule hits that came ONLY from an extracted stream (not raw bytes)
 
@@ -107,6 +108,7 @@ type ExtractMetrics struct {
 	OneNote    uint64 // buffers recognised as OneNote .one (embedded files carved)
 	Archive    uint64 // buffers recognised as an archive (zip/gz/7z/rar/tar; members unpacked)
 	OLEPackage uint64 // OLE2 docs with an embedded OLE Package object (Ole10Native carved)
+	LNK        uint64 // Windows shell links (.lnk) with StringData surfaced
 	EncScript  uint64 // buffers with >=1 decoded MS-Script-Encoder (VBE/JSE) block
 	// StreamMatches counts rule hits attributable ONLY to an extracted stream
 	// (macro/MSI/VBE), i.e. rules that did NOT already fire on the raw bytes —
@@ -128,6 +130,7 @@ func (s *Scanner) ExtractMetrics() ExtractMetrics {
 		OneNote:       s.exOneNote.Load(),
 		Archive:       s.exArchive.Load(),
 		OLEPackage:    s.exOLEPackage.Load(),
+		LNK:           s.exLNK.Load(),
 		EncScript:     s.exEncodedScript.Load(),
 		StreamMatches: s.exStreamMatches.Load(),
 	}
@@ -593,6 +596,9 @@ func (s *Scanner) Scan(buf []byte, meta ScanMeta) ([]Match, error) {
 	}
 	if res.IsOLEPackage {
 		s.exOLEPackage.Add(1)
+	}
+	if res.IsLNK {
+		s.exLNK.Add(1)
 	}
 	if res.EncodedScript {
 		s.exEncodedScript.Add(1)
