@@ -11,6 +11,32 @@ import (
 	"time"
 )
 
+// TestExtractDeadlineStopsArchive verifies the extraction deadline is honored by
+// the archive path (not just fromOLE/fromOOXML): a plain dropper zip with several
+// members yields its members under a generous deadline, but an already-expired
+// deadline must short-circuit so no members are unpacked. Extraction runs inside
+// the held scan-CPU slot, so this bounds wall-clock against a CPU-heavy nested
+// decompressor.
+func TestExtractDeadlineStopsArchive(t *testing.T) {
+	zipBytes := buildZip(t, map[string][]byte{
+		"a.js":  bytes.Repeat([]byte("payload-a;"), 64),
+		"b.bat": bytes.Repeat([]byte("payload-b;"), 64),
+		"c.vbs": bytes.Repeat([]byte("payload-c;"), 64),
+	})
+
+	// Generous deadline: members are unpacked.
+	ok := Extract(zipBytes, time.Now().Add(10*time.Second))
+	if len(ok.Streams) == 0 {
+		t.Fatal("with a live deadline the plain zip members should be unpacked")
+	}
+
+	// Already-expired deadline: the archive walk must skip everything.
+	past := Extract(zipBytes, time.Now().Add(-time.Second))
+	if len(past.Streams) != 0 {
+		t.Errorf("expired deadline: archive members still unpacked: %d streams", len(past.Streams))
+	}
+}
+
 // buildZip builds an in-memory zip from name→data entries.
 func buildZip(t *testing.T, entries map[string][]byte) []byte {
 	t.Helper()
