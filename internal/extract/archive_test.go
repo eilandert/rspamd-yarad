@@ -37,6 +37,28 @@ func TestExtractDeadlineStopsArchive(t *testing.T) {
 	}
 }
 
+// TestExtractArchiveOfficeMemberNotPartDumped is the FP guard: a nested zip that
+// is an Office document (OOXML markers) dropped inside a plain archive must go
+// through the macro path only — its ordinary body parts (document.xml, …) must
+// NOT be surfaced as member streams (that would scan normal text and FP). A
+// macro-free .docx therefore contributes zero streams from inside the archive,
+// unlike a plain zip member which IS dumped.
+func TestExtractArchiveOfficeMemberNotPartDumped(t *testing.T) {
+	docx := buildZip(t, map[string][]byte{
+		"[Content_Types].xml": []byte(`<?xml version="1.0"?><Types/>`),
+		"word/document.xml":   []byte("UNIQUE_BODY_TEXT_should_not_be_scanned_as_a_member"),
+		"_rels/.rels":         []byte("<Relationships/>"),
+	})
+	outer := buildZip(t, map[string][]byte{"report.docx": docx})
+
+	res := Extract(outer, time.Time{})
+	for i, s := range res.Streams {
+		if bytes.Contains(s, []byte("UNIQUE_BODY_TEXT_should_not_be_scanned_as_a_member")) {
+			t.Fatalf("office-doc body part %d was part-dumped from the archive (FP guard broken)", i)
+		}
+	}
+}
+
 // buildZip builds an in-memory zip from name→data entries.
 func buildZip(t *testing.T, entries map[string][]byte) []byte {
 	t.Helper()
