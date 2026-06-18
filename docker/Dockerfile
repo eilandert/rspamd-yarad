@@ -49,11 +49,14 @@ ENV CGO_ENABLED=1 \
     PKG_CONFIG="pkg-config --static"
 RUN go mod tidy
 ARG VERSION=dev
+ARG YARA_VERSION
 # Two binaries: the CGO/libyara server (yarad), and the lean Sieve/LDA client
 # (yarad-scan) built CGO-free — pure Go, no libyara, a small static binary for a
-# mail-delivery host that only POSTs to a central yarad.
+# mail-delivery host that only POSTs to a central yarad. main.libyaraVersion is
+# baked from YARA_VERSION so `fetch-rules` can refuse a .yac built against a
+# different libyara.
 RUN go build -tags yara_static \
-        -ldflags "-s -w -X main.version=${VERSION}" \
+        -ldflags "-s -w -X main.version=${VERSION} -X main.libyaraVersion=${YARA_VERSION}" \
         -o /out/yarad ./cmd/yarad \
     && CGO_ENABLED=0 go build \
         -ldflags "-s -w -X main.version=${VERSION}" \

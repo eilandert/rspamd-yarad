@@ -184,7 +184,28 @@ Two more helpers share the binary:
 yarad check-rules                    # compile rules, print the count, exit non-zero on failure (a CI gate)
 yarad extract suspicious.doc         # show what the extractor carves (container type + member streams), no scan
 yarad extract -out /tmp/parts a.docm # …and write each carved member to a dir for inspection
+yarad fetch-rules                    # update the cached rule bundle from the release (see below)
 ```
+
+#### Updating rules without rebuilding (`fetch-rules`)
+
+The image ships a tested compiled bundle, but rules move faster than image
+rebuilds — especially if you run yarad **outside Docker**, where you'd otherwise
+need `yarac` and a matching libyara to compile them yourself. `yarad fetch-rules`
+downloads a prebuilt, version-matched bundle into the cache instead:
+
+```sh
+yarad fetch-rules                       # from the default rolling release
+yarad fetch-rules -cache-dir /var/cache/yarad
+```
+
+It fetches a small manifest first and only updates when the published **version**
+is newer; it **refuses** a bundle built against a different **libyara** (a `.yac`
+only loads on a matching one), **verifies the sha256** of the download, and swaps
+it in atomically while keeping one `.bak` for rollback. On any error the current
+bundle is left untouched (fail to last-good). Then `SIGHUP` (or restart) yarad to
+load it. Point `-url` / `YARAD_RULES_URL` at a mirror if you don't fetch from
+GitHub. The bundle is published by `docker/generate-rules.sh` (run from a cron).
 
 ### `yarad-scan` — the lean Sieve / LDA client
 
