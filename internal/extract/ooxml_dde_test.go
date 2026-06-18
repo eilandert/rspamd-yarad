@@ -91,6 +91,61 @@ func TestOOXMLDDE_SplitRuns(t *testing.T) {
 	}
 }
 
+// TestOOXMLDDE_SpaceObfuscated checks that a space-obfuscated DDE directive like
+// "D D E A U T O cmd" is detected AND that the emitted stream contains the
+// contiguous token "DDEAUTO" so YARA patterns can match it.
+func TestOOXMLDDE_SpaceObfuscated(t *testing.T) {
+	docXML := `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:fldSimple w:instr="D D E A U T O cmd /k calc">
+        <w:r><w:t>click to update</w:t></w:r>
+      </w:fldSimple>
+    </w:p>
+  </w:body>
+</w:document>`
+
+	buf := makeOOXMLWithDocument(t, docXML)
+	res := Extract(buf, time.Time{})
+
+	joined := bytes.Join(res.Streams, []byte("\n"))
+	if !bytes.Contains(joined, []byte("OOXML-DDE-FIELD")) {
+		t.Fatalf("space-obfuscated DDEAUTO not detected; streams=%d joined=%q", len(res.Streams), joined)
+	}
+	// The emitted stream must contain the contiguous "DDEAUTO" token so that
+	// YARA rules like `$ddeauto = "DDEAUTO "` can fire.
+	if !bytes.Contains(joined, []byte("DDEAUTO")) {
+		t.Fatalf("emitted stream lacks contiguous DDEAUTO token; got %q", joined)
+	}
+}
+
+// TestOOXMLDDE_NewlineObfuscated checks that a DDE directive containing a
+// newline inside the token ("D\nD\nE\nA\nU\nT\nO") is also normalised correctly.
+func TestOOXMLDDE_NewlineObfuscated(t *testing.T) {
+	docXML := `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:fldSimple w:instr="D&#10;D&#10;E&#10;A&#10;U&#10;T&#10;O cmd /k calc">
+        <w:r><w:t>click to update</w:t></w:r>
+      </w:fldSimple>
+    </w:p>
+  </w:body>
+</w:document>`
+
+	buf := makeOOXMLWithDocument(t, docXML)
+	res := Extract(buf, time.Time{})
+
+	joined := bytes.Join(res.Streams, []byte("\n"))
+	if !bytes.Contains(joined, []byte("OOXML-DDE-FIELD")) {
+		t.Fatalf("newline-obfuscated DDEAUTO not detected; streams=%d joined=%q", len(res.Streams), joined)
+	}
+	if !bytes.Contains(joined, []byte("DDEAUTO")) {
+		t.Fatalf("emitted stream lacks contiguous DDEAUTO token after newline normalization; got %q", joined)
+	}
+}
+
 // TestOOXMLDDE_BenignField checks that an ordinary field like PAGE emits nothing.
 func TestOOXMLDDE_BenignField(t *testing.T) {
 	docXML := `<?xml version="1.0" encoding="UTF-8"?>

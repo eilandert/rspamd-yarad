@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"www.velocidex.com/golang/oleparse"
 )
@@ -729,17 +730,29 @@ func parseDDEFields(raw []byte, out *[][]byte, deadline time.Time) {
 	inComplexField := false
 
 	emitIfDDE := func(instr string) {
-		instr = strings.TrimSpace(instr)
-		// De-space: remove all internal spaces to catch obfuscated "D D E" splits.
-		nospace := strings.ReplaceAll(instr, " ", "")
-		upper := strings.ToUpper(nospace)
+		// Normalize: collapse every run of Unicode whitespace to a single space,
+		// then strip leading/trailing. This handles obfuscated "D D E A U T O"
+		// spacing as well as tab/newline variants.
+		normalized := strings.Join(strings.Fields(instr), " ")
+		// Build a fully-whitespace-free form for prefix/contains detection so
+		// "D D E A U T O" → "DDEAUTO" matches HasPrefix.
+		noWS := strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return r
+		}, normalized)
+		upper := strings.ToUpper(noWS)
 		if !strings.HasPrefix(upper, "DDE") {
 			return
 		}
 		if countDDEFields(*out) >= maxDDEFields || len(*out) >= maxStreams {
 			return
 		}
-		*out = append(*out, []byte("OOXML-DDE-FIELD "+instr))
+		// Emit the normalized (single-space-collapsed) instruction. The directive
+		// token is now contiguous ("DDEAUTO", "DDE") so YARA patterns like
+		// "DDEAUTO " match correctly on both plain and space-obfuscated inputs.
+		*out = append(*out, []byte("OOXML-DDE-FIELD "+normalized))
 	}
 
 	for {
