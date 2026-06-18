@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"www.velocidex.com/golang/oleparse"
 )
@@ -730,18 +731,16 @@ func parseDDEFields(raw []byte, out *[][]byte, deadline time.Time) {
 	inComplexField := false
 
 	emitIfDDE := func(instr string) {
-		// Normalize: collapse every run of Unicode whitespace to a single space,
-		// then strip leading/trailing. This handles obfuscated "D D E A U T O"
-		// spacing as well as tab/newline variants.
-		normalized := strings.Join(strings.Fields(instr), " ")
-		// Build a fully-whitespace-free form for prefix/contains detection so
-		// "D D E A U T O" → "DDEAUTO" matches HasPrefix.
+		// norm = collapse every run of Unicode whitespace to a single space
+		// (handles tabs/newlines between runs); noWS = fully whitespace-free, used
+		// to detect an inter-letter-spaced "D D E A U T O" directive.
+		norm := strings.Join(strings.Fields(instr), " ")
 		noWS := strings.Map(func(r rune) rune {
 			if unicode.IsSpace(r) {
 				return -1
 			}
 			return r
-		}, normalized)
+		}, norm)
 		upper := strings.ToUpper(noWS)
 		if !strings.HasPrefix(upper, "DDE") {
 			return
@@ -749,10 +748,31 @@ func parseDDEFields(raw []byte, out *[][]byte, deadline time.Time) {
 		if countDDEFields(*out) >= maxDDEFields || len(*out) >= maxStreams {
 			return
 		}
-		// Emit the normalized (single-space-collapsed) instruction. The directive
-		// token is now contiguous ("DDEAUTO", "DDE") so YARA patterns like
-		// "DDEAUTO " match correctly on both plain and space-obfuscated inputs.
-		*out = append(*out, []byte("OOXML-DDE-FIELD "+normalized))
+		// Emit `<directive> <tail>`: the directive token (DDE/DDEAUTO) is made
+		// contiguous so YARA `$ddeauto = "DDEAUTO "` fires even on the obfuscated
+		// inter-letter-spaced form, while the tail keeps its single-space args
+		// (legitimate field paths/commands have meaningful spaces — don't strip).
+		dirLen := 3 // "DDE"
+		if strings.HasPrefix(upper, "DDEAUTO") {
+			dirLen = 7 // "DDEAUTO"
+		}
+		// Walk norm to the byte offset just past the directive's dirLen non-space
+		// runes, so the readable tail starts after the (possibly spaced) directive.
+		seen, cut := 0, len(norm)
+		for i, r := range norm {
+			if !unicode.IsSpace(r) {
+				seen++
+				if seen == dirLen {
+					cut = i + utf8.RuneLen(r)
+					break
+				}
+			}
+		}
+		emit := noWS[:dirLen]
+		if tail := strings.TrimSpace(norm[cut:]); tail != "" {
+			emit += " " + tail
+		}
+		*out = append(*out, []byte("OOXML-DDE-FIELD "+emit))
 	}
 
 	for {

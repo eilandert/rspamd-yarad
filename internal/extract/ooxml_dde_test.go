@@ -27,7 +27,7 @@ func TestOOXMLDDE_FldSimple(t *testing.T) {
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p>
-      <w:fldSimple w:instr="DDEAUTO c:\\Windows\\System32\\cmd.exe /k calc">
+      <w:fldSimple w:instr="DDEAUTO c:\Windows\System32\cmd.exe /k calc">
         <w:r><w:t>click to update</w:t></w:r>
       </w:fldSimple>
     </w:p>
