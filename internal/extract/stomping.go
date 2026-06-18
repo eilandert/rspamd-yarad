@@ -354,7 +354,7 @@ func vbaCompressStream(src []byte) []byte {
 		// Raw chunk: header word bit15=0, bits0-11 = (size-1).
 		padded := make([]byte, 4096)
 		copy(padded, chunk)
-		hdr := uint16(len(padded)-1) & 0x0FFF
+		hdr := uint16(len(padded)-1) & 0x0FFF // #nosec G115 -- padded is always 4096
 		var hdrBuf [2]byte
 		binary.LittleEndian.PutUint16(hdrBuf[:], hdr)
 		out.Write(hdrBuf[:])
