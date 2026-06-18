@@ -38,7 +38,20 @@ func cmdFetchRules(args []string) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	hc := &http.Client{Timeout: *timeout}
+	// Redirects ARE followed (a GitHub release-asset URL legitimately 30x's to the
+	// object store, so a blanket reject would break the default URL), but the chain
+	// is bounded. These requests carry NO auth/secret header — the bundle is a
+	// public asset — so there is nothing for a redirect to leak; the only guard
+	// needed is a hop cap against a redirect loop.
+	hc := &http.Client{
+		Timeout: *timeout,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
+	}
 
 	res, err := yarad.FetchRules(ctx, *url, *cacheDir, libyaraVersion, hc)
 	if err != nil {
