@@ -25,7 +25,7 @@ func TestEffectiveSourceLen(t *testing.T) {
 		if tc.want == 0 && got != 0 {
 			t.Errorf("%s: want 0, got %d", tc.name, got)
 		} else if tc.want > 0 && got == 0 {
-			t.Errorf("%s: want >0, got 0", tc.name, got)
+			t.Errorf("%s: want >0, got %d", tc.name, got)
 		}
 	}
 }
