@@ -46,6 +46,13 @@ import (
 
 var version = "dev"
 
+// libyaraVersion is the libyara release yarad was built/linked against, injected
+// at build time via -ldflags "-X main.libyaraVersion=<v>" from the Dockerfile's
+// YARA_VERSION. A compiled .yac only loads on a matching libyara, so `fetch-rules`
+// compares this against a downloaded bundle's manifest and refuses a mismatch.
+// Empty (dev builds) disables the skew check.
+var libyaraVersion = ""
+
 func main() {
 	log.SetFlags(0) // journald adds its own timestamps
 	os.Exit(run(os.Args[1:]))
@@ -72,10 +79,12 @@ func run(args []string) int {
 		return cmdCheckRules(args)
 	case "extract":
 		return cmdExtract(args)
+	case "fetch-rules":
+		return cmdFetchRules(args)
 	case "health":
 		return cmdHealth()
 	default:
-		fmt.Fprintln(os.Stderr, "usage: yarad [serve|scan|check-rules|extract|health|version]")
+		fmt.Fprintln(os.Stderr, "usage: yarad [serve|scan|check-rules|extract|fetch-rules|health|version]")
 		return 2
 	}
 }
