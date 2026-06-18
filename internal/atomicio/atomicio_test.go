@@ -33,6 +33,30 @@ func TestWriteWithBackupCreatesAndBacksUp(t *testing.T) {
 	}
 }
 
+// TestWriteWithBackupKeepsLivePresent guards the Codex P2 fix: the live file must
+// stay present throughout a replacement (the backup is a COPY, not a rename), so
+// a crash/concurrent read in the swap window never sees a missing live file.
+func TestWriteWithBackupKeepsLivePresent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "feed")
+	if err := WriteWithBackup(p, []byte("v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Before the second write the live file exists; after it, still exists (and is
+	// v2) and the backup holds v1 — at no modeled point is `path` absent.
+	if _, ok := ReadCached(p); !ok {
+		t.Fatal("live file missing before replacement")
+	}
+	if err := WriteWithBackup(p, []byte("v2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := ReadCached(p); !ok || string(b) != "v2" {
+		t.Fatalf("live after replace = %q,%v", b, ok)
+	}
+	if b, _ := os.ReadFile(p + BackupSuffix); string(b) != "v1" {
+		t.Fatalf("backup = %q, want v1 (copied, not moved)", b)
+	}
+}
+
 func TestWriteWithBackupPerm(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "f")
 	if err := WriteWithBackup(p, []byte("x"), 0o600); err != nil {

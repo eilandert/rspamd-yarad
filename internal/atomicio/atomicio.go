@@ -49,12 +49,21 @@ func WriteWithBackup(path string, data []byte, perm os.FileMode) (err error) {
 		return err
 	}
 
-	// Keep one backup of the current file before replacing it. A missing current
-	// file (first write) is not an error.
-	if _, statErr := os.Stat(path); statErr == nil {
-		// Best-effort rename of the live file to .bak; if it fails we still try the
-		// swap (the temp file is verified) rather than abandoning the update.
-		_ = os.Rename(path, path+BackupSuffix)
+	// Keep one backup of the current file before replacing it — by COPYING, not
+	// renaming. Renaming the live file to .bak first would leave `path` absent in
+	// the window before the final rename, so a crash or a concurrent warm-start in
+	// that gap would see no live feed and start empty even though a valid snapshot
+	// existed. Copying leaves `path` present continuously; the single rename below
+	// then atomically replaces it. A backup-copy failure is non-fatal (the verified
+	// new file still installs) — we just lose the rollback copy.
+	if cur, err := os.ReadFile(path); err == nil { // #nosec G304 -- caller-owned path
+		bakTmp, e := os.CreateTemp(dir, ".atomicio-bak-*.tmp")
+		if e == nil {
+			_, _ = bakTmp.Write(cur)
+			_ = bakTmp.Close()
+			_ = os.Chmod(bakTmp.Name(), perm)
+			_ = os.Rename(bakTmp.Name(), path+BackupSuffix)
+		}
 	}
 	return os.Rename(tmpName, path)
 }
