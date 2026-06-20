@@ -37,7 +37,7 @@ import (
 // oleparse upgrade that changes output) invalidates cached verdicts the same
 // way a rule-set change does — important for the shared Redis L2 that survives
 // an image rebuild. Bump it whenever the bytes Extract emits could change.
-const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform"
+const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops"
 
 // OLE2/CFB compound-document magic (legacy .doc/.xls, the vbaProject.bin
 // embedded in OOXML, AND the encrypted-OOXML wrapper) and the local-file-header
@@ -325,6 +325,10 @@ func fromOLE(buf []byte, res *Result, deadline time.Time) {
 	// values stored in "o"/"f"/"\x03VBFrame" streams). These are invisible to
 	// source-text scanners. Emits "USERFORM-STRINGS" marker + carved strings.
 	fromUserForms(ole, res, deadline)
+	// Carve payload strings hidden in OLE2 SummaryInformation and
+	// DocumentSummaryInformation property-set streams. Emits
+	// "DOCPROPS-STRINGS" marker + carved strings.
+	fromOLEDocProps(ole, res, deadline)
 	// An embedded OLE Package object (dropped .exe/.bat in an Ole10Native stream)
 	// can ride alongside macros, so always carve it regardless of whether VBA was
 	// found — it's a no-op when the doc has no package stream.
@@ -542,6 +546,11 @@ func fromOOXML(buf []byte, res *Result, deadline time.Time) {
 	// a synthetic "XLM-HIDDEN-MACROSHEET <state> <name>" stream.
 	// Fail-open: any parse error is silently ignored.
 	fromOOXMLXLM(zr, &out, deadline)
+	// Carve payload strings from OOXML document-property parts
+	// (docProps/core.xml, docProps/app.xml, docProps/custom.xml,
+	// customXml/item*.xml) and word/settings.xml docVars.
+	// Emits "DOCPROPS-STRINGS" marker + extracted strings.
+	fromOOXMLDocProps(zr, &out, deadline)
 	res.Streams = out
 	// Every .bin we tried failed to parse and nothing came out: a document that
 	// looks macro-bearing but yields no usable VBA (obfuscated/corrupt/hostile).
