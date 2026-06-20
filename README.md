@@ -391,6 +391,15 @@ rules), merging and de-duplicating matches:
   `StrReverse`) is undone, then the decoded blobs are re-scanned. This is
   **single-layer** only — a decoded blob is not decoded again (depth cap 1) and
   no VBA/XLM is *executed*; multi-stage unpacking stays with `olevba`.
+- **VBA string folding** — the olevba constant-fold set is reassembled in
+  cleartext so keyword/IOC rules see the payload: `Chr`/`ChrW` concat,
+  `Replace("s","o","n")`, `Array(...) Xor k`, `StrReverse("literal")`,
+  `Environ("NAME")` → a `VBA-ENVIRON %NAME%` marker, and the **Dridex** string
+  obfuscation (`DridexUrlDecode`). Each fold's regex input is clamped (1 MiB) so
+  a pathological body can't blow the scan budget.
+- **oleid structural indicators** — an `ObjectPool` storage (embedded OLE
+  objects) and embedded Flash/SWF objects are surfaced as `OLEID-OBJECTPOOL` /
+  `OLEID-FLASH` markers and scored by `oleid_indicators.yara`.
 - **Filename/extension externals** — name-keyed rules fire from the plugin's
   `X-YARAD-Filename`; the name is folded into the verdict cache key.
 - **URL defanging** — `hxxp`→`http`, `[.]`/`(dot)`→`.` on every buffer before
@@ -403,13 +412,16 @@ across raw + every extracted stream, and zip-bomb/quine caps (per-item, total
 bytes, member/depth counts) bound the work, so one document can't monopolize a
 worker. Encrypted (ECMA-376) OOXML is counted but **not** decrypted.
 
-This covers ~80% of what Python [oletools](https://github.com/decalage2/oletools)
-does for mail (VBA extraction+decompression, macro/autoexec keyword detection
-incl. an mraptor-style autoexec+write+execute heuristic, OLE/encryption
-indicators, RTF exploit + embedded-object carve, single-layer base64/hex/StrReverse
-decode, IOC→reputation), in-process and with no Python. The deep tail —
-*multi-stage* deobfuscation (a payload encoded two-plus layers deep, Dridex-style)
-and XLM/Excel-4.0 *emulation* — still belongs to `olevba`, which is why
+This covers what Python [oletools](https://github.com/decalage2/oletools) does
+for mail (VBA extraction+decompression, macro/autoexec keyword detection incl. an
+mraptor-style autoexec+write+execute heuristic, OLE/encryption + ObjectPool/Flash
+indicators, RTF exploit + embedded-object carve, the olevba string-fold set
+— `Chr`/`Replace`/`Xor`/`StrReverse`/`Environ` and Dridex string decode —
+single-layer base64/hex, IOC→reputation), in-process and with no Python, while
+adding container formats oletools does not touch (MSI, `.msg`, OneNote, `.lnk`,
+PDF, nested archives) and live URLhaus/MalwareBazaar reputation. The deep tail —
+***multi-stage*** deobfuscation (a payload encoded two-plus layers deep) and
+XLM/Excel-4.0 *emulation* — still belongs to `olevba`, which is why
 [`rspamd-olefy`](https://github.com/eilandert/rspamd-olefy) stays as a parallel
 deep-scan scorer.
 
@@ -484,6 +496,8 @@ docker build --target final -f docker/Dockerfile -t eilandert/rspamd-yarad \
 - [x] Local heuristics `Maldoc_Suspicious_VBA_Keywords` (olevba count heuristic) + `Maldoc_VBA_Shellcode_API` (Declare+injection-API)
 - [x] OOXML external-relationship scan (`*/_rels/*.rels`) → `OOXML_Remote_Template` rule (remote-template injection, T1221)
 - [x] Static single-layer decode pass (base64/hex/`StrReverse`) over raw + extracted streams, re-scanned (depth cap 1)
+- [x] VBA string folding: `Chr`/`Replace`/`Array Xor`/`StrReverse("lit")`/`Environ`→marker + **Dridex** (`DridexUrlDecode`); per-fold input clamp
+- [x] oleid structural indicators: `OLEID-OBJECTPOOL` (embedded OLE objects) + `OLEID-FLASH` (SWF) markers → `oleid_indicators.yara`
 - [x] Filename/extension externals (name-keyed rules) via `X-YARAD-Filename`
 - [x] URL defang + URLhaus URL/host lookup; MalwareBazaar attachment-hash lookup (cached feeds, fail-open)
 - [x] `YARAD_RULE_DENYLIST` (drop) + `YARAD_RULE_ALLOWLIST` (log-only)

@@ -37,7 +37,7 @@ import (
 // oleparse upgrade that changes output) invalidates cached verdicts the same
 // way a rule-set change does — important for the shared Redis L2 that survives
 // an image rebuild. Bump it whenever the bytes Extract emits could change.
-const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex"
+const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex+oleid"
 
 // OLE2/CFB compound-document magic (legacy .doc/.xls, the vbaProject.bin
 // embedded in OOXML, AND the encrypted-OOXML wrapper) and the local-file-header
@@ -323,6 +323,9 @@ func fromOLE(buf []byte, res *Result, deadline time.Time) {
 		// Even when VBA extraction fails, a legacy spreadsheet may carry hidden
 		// XLM macrosheets in its Workbook stream — scan for BOUNDSHEET8 records.
 		fromBIFFXLM(ole, res, deadline)
+		// Structural indicators (ObjectPool / Flash) are independent of VBA, so
+		// surface them on a no-macro OLE2 too.
+		fromOLEIndicators(ole, res, deadline)
 		return
 	}
 	res.Streams = codes(mods, nil)
@@ -341,6 +344,9 @@ func fromOLE(buf []byte, res *Result, deadline time.Time) {
 	// can ride alongside macros, so always carve it regardless of whether VBA was
 	// found — it's a no-op when the doc has no package stream.
 	fromOLEPackage(ole, res, deadline)
+	// oleid-style structural indicators: an ObjectPool storage (embedded OLE
+	// objects) and embedded Flash/SWF objects. Emits OLEID-* markers.
+	fromOLEIndicators(ole, res, deadline)
 	// Detect hidden Excel-4.0 macrosheets in legacy .xls BIFF8 streams. This is
 	// independent of VBA: XLM macro sheets use a different mechanism and their
 	// BOUNDSHEET8 records are in the Workbook stream, not a VBA project.
