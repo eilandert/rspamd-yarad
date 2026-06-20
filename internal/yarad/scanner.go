@@ -128,8 +128,8 @@ type ExtractMetrics struct {
 	StreamMatches uint64
 	// Deduped counts extracted streams skipped before YARA scanning because their
 	// SHA256 matched a previously scanned stream (or the raw input buffer itself).
-	Deduped   uint64
-	DocProps   uint64 // documents with doc-property strings extracted
+	Deduped  uint64
+	DocProps uint64 // documents with doc-property strings extracted
 }
 
 // ExtractMetrics returns the current pre-extraction counters.
