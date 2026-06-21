@@ -203,7 +203,8 @@ func TestDecodeReversedEqualsSourceStillEmitted(t *testing.T) {
 // TestFNV64 sanity-checks the inlined hash: deterministic, and distinct inputs
 // (incl. empty) hash distinctly here.
 func TestFNV64(t *testing.T) {
-	if fnv64([]byte("abc")) != fnv64([]byte("abc")) {
+	abc := fnv64([]byte("abc"))
+	if abc != fnv64([]byte("abc")) {
 		t.Error("fnv64 not deterministic")
 	}
 	if fnv64([]byte("abc")) == fnv64([]byte("abd")) {
