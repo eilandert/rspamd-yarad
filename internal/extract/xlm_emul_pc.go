@@ -112,7 +112,7 @@ func controlVerb(formula string) string {
 		s = s[1:]
 	}
 	upper := strings.ToUpper(strings.TrimSpace(s))
-	for _, v := range []string{"HALT", "RETURN"} {
+	for _, v := range []string{"HALT", "RETURN", "NEXT"} {
 		if upper == v || upper == v+"()" {
 			return v
 		}
@@ -143,6 +143,33 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 		return
 	}
 
+	m.runPC(&currentSheet, &currentCoord)
+
+	// Drain the forkQueue: explore not-taken IF branches with their COW snapshots.
+	// Each frame is a shallow fork; the step fuse and deadline guard against runaway.
+	for len(m.forkQueue) > 0 {
+		if expired(m.deadline) || m.steps >= maxEmulSteps {
+			break
+		}
+		// Pop from the end (LIFO).
+		frame := m.forkQueue[len(m.forkQueue)-1]
+		m.forkQueue = m.forkQueue[:len(m.forkQueue)-1]
+		// Restore COW snapshot.
+		m.sheets = frame.sheets
+		m.names = frame.names
+		m.steps = frame.steps
+		m.whileStack = nil
+		// Recurse — inner run() may push more forks onto m.forkQueue; they
+		// will be drained by the outer loop when the inner run() returns.
+		sh, co := frame.sheet, frame.coord
+		m.runPC(&sh, &co)
+	}
+}
+
+// runPC is the inner PC execution loop. It runs until a terminal condition is
+// hit (HALT, fuse, missing cell, output cap) and returns to the caller.
+// currentSheet and currentCoord are updated in-place throughout execution.
+func (m *xlmMachine) runPC(currentSheet, currentCoord *string) {
 	for {
 		// Deadline fuse.
 		if expired(m.deadline) {
@@ -153,7 +180,7 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 			return
 		}
 
-		addr := currentSheet + "!" + currentCoord
+		addr := *currentSheet + "!" + *currentCoord
 
 		// Revisit fuse.
 		m.visited[addr]++
@@ -164,11 +191,11 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 		m.steps++
 
 		// Look up the current cell.
-		sh, ok := m.sheets[currentSheet]
+		sh, ok := m.sheets[*currentSheet]
 		if !ok {
 			return
 		}
-		cell := sh.cells[currentCoord]
+		cell := sh.cells[*currentCoord]
 		if cell == nil {
 			return
 		}
@@ -177,24 +204,6 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 
 		// Dispatch on control-flow verb.
 		switch {
-		case formula == "" ||
-			(!hasControlVerb(formula, "GOTO") &&
-				!hasControlVerb(formula, "RUN") &&
-				controlVerb(formula) == ""):
-			// Not a control-flow statement: eval and emit, then advance.
-			if formula != "" {
-				if s := evalExpr(m, currentSheet, formula, nil); s != "" {
-					if !emitFoldedFormula(s, m.out, m.totalOutput, true) {
-						return // output cap reached
-					}
-				}
-			}
-			next := nextRow(currentCoord)
-			if next == "" {
-				return
-			}
-			currentCoord = next
-
 		case controlVerb(formula) == "HALT":
 			return
 
@@ -204,8 +213,8 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 			}
 			frame := m.branchStack[len(m.branchStack)-1]
 			m.branchStack = m.branchStack[:len(m.branchStack)-1]
-			currentSheet = frame.returnSheet
-			currentCoord = frame.returnAddr
+			*currentSheet = frame.returnSheet
+			*currentCoord = frame.returnAddr
 
 		case hasControlVerb(formula, "GOTO"):
 			targetSheet, targetCoord, ok := parseControlFlowArg("GOTO", formula)
@@ -213,10 +222,10 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 				return
 			}
 			if targetSheet == "" {
-				targetSheet = currentSheet
+				targetSheet = *currentSheet
 			}
-			currentSheet = targetSheet
-			currentCoord = targetCoord
+			*currentSheet = targetSheet
+			*currentCoord = targetCoord
 
 		case hasControlVerb(formula, "RUN"):
 			if len(m.branchStack) >= maxEmulBranchStack {
@@ -227,32 +236,54 @@ func (m *xlmMachine) run(sheetName, startCoord string) {
 				return
 			}
 			if targetSheet == "" {
-				targetSheet = currentSheet
+				targetSheet = *currentSheet
 			}
 			// Push return frame: resume at the NEXT row after the RUN cell.
-			returnCoord := nextRow(currentCoord)
+			returnCoord := nextRow(*currentCoord)
 			if returnCoord == "" {
 				return
 			}
 			m.branchStack = append(m.branchStack, branchFrame{
-				returnSheet: currentSheet,
+				returnSheet: *currentSheet,
 				returnAddr:  returnCoord,
 			})
-			currentSheet = targetSheet
-			currentCoord = targetCoord
+			*currentSheet = targetSheet
+			*currentCoord = targetCoord
 
-		default:
-			// Unknown formula pattern — treat as non-control, emit and advance.
-			if s := evalExpr(m, currentSheet, formula, nil); s != "" {
-				if !emitFoldedFormula(s, m.out, m.totalOutput, true) {
-					return
-				}
-			}
-			next := nextRow(currentCoord)
+		case hasControlVerb(formula, "IF"):
+			m.handleIF(formula, *currentSheet, *currentCoord, currentSheet, currentCoord)
+
+		case hasControlVerb(formula, "WHILE"):
+			m.handleWHILE(formula, *currentSheet, *currentCoord, currentSheet, currentCoord)
+
+		case controlVerb(formula) == "NEXT" || hasControlVerb(formula, "NEXT"):
+			m.handleNEXT(currentSheet, currentCoord)
+
+		case hasControlVerb(formula, "FOR.CELL"):
+			m.handleFORCELL(currentCoord)
+
+		case hasControlVerb(formula, "SET.NAME") || hasControlVerb(formula, "DEFINE.NAME"):
+			m.handleSetName(formula, *currentSheet)
+			next := nextRow(*currentCoord)
 			if next == "" {
 				return
 			}
-			currentCoord = next
+			*currentCoord = next
+
+		default:
+			// Non-control-flow formula (or empty): eval and emit, then advance.
+			if formula != "" {
+				if s := evalExpr(m, *currentSheet, formula, nil); s != "" {
+					if !emitFoldedFormula(s, m.out, m.totalOutput, true) {
+						return // output cap reached
+					}
+				}
+			}
+			next := nextRow(*currentCoord)
+			if next == "" {
+				return
+			}
+			*currentCoord = next
 		}
 	}
 }
