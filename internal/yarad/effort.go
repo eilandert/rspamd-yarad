@@ -1,5 +1,11 @@
 package yarad
 
+import (
+	"time"
+
+	"github.com/eilandert/rspamd-yarad/internal/extract"
+)
+
 // Effort tiers (EFFORT-1) — the operator/caller cost dial.
 //
 // A single scalar level (1..EffortMax) scales every bounded extraction/scan cap
@@ -13,17 +19,23 @@ package yarad
 //   - ResolveEffortLevel: header/env resolution with the DoS clamp;
 //   - EffortProfileFor: level -> profile.
 //
-// The profile is threaded to the scanner and folded into the verdict-cache key,
-// but the individual caps (MSD decode depth, XLM/PDF clamps, reputation-feed
-// gating, scan timeout) still read their package constants today. EFFORT-4
-// retrofits each cap to read its EffortProfile field. Until then every level
-// resolves to the same effective behaviour (full depth) — the plumbing is
-// present but inert, so each new feature wires its cap in from day one and the
-// dial activates the moment EFFORT-4 lands.
+// As of EFFORT-4 the dial is LIVE: EffortProfileFor maps a level to a real cap
+// set (MSD decode depth/iterations, PDF indicator pass, reputation-feed gating),
+// ExtractOptions threads the extract-side caps into extract.Extract, and the
+// scanner gates the external feeds on the profile. A low level unwraps fewer
+// decode layers, skips the PDF structural-indicator pass, and skips the
+// URLhaus/MalwareBazaar lookups; the ceiling runs everything at full depth.
+//
+// Not (yet) effort-scaled: the per-libyara-scan wall-clock (scanTimeout) and the
+// XLM formula/sheet caps — deferred to a follow-up (see TODO EFFORT-4-SCANTIMEOUT/
+// EFFORT-4-XLMCAPS); they still read their package constants.
 
-// EffortProfile is the resolved set of caps for one scan's effort level. Fields
-// are the dials EFFORT-4 will wire; today they are populated for observability /
-// cache-key stability but not yet read by the extractors.
+// EffortProfile is the resolved set of caps for one scan's effort level. As of
+// EFFORT-4 the fields are LIVE: ExtractOptions maps DecodeDepth/DecodeIterations/
+// PDFDeepen into the extract package's per-request caps, and the scanner gates the
+// reputation-feed lookups on ReputationFeeds. The level still folds into the
+// verdict-cache key so two scans of the same bytes at different effort can hold
+// distinct verdicts.
 type EffortProfile struct {
 	// Level is the resolved effort (1..EffortMax) this profile was built for. It
 	// is what folds into the verdict-cache key, so two scans of the same bytes at
@@ -35,30 +47,102 @@ type EffortProfile struct {
 	// (pdf.go fromPDFIndicators). ReputationFeeds enables the URLhaus/MalwareBazaar
 	// lookups. These are the first caps EFFORT-4 wires; more (XLM formula/sheet
 	// caps, fold/carve clamps, maxStreams) follow.
-	DecodeDepth     int
-	PDFDeepen       bool
-	ReputationFeeds bool
+	DecodeDepth      int
+	DecodeIterations int
+	PDFDeepen        bool
+	ReputationFeeds  bool
 }
 
-// EffortProfileFor maps an effort level to its profile. EFFORT-1 returns a
-// full-depth profile at every level (the inert contract): the structure and the
-// Level field are real, the cap VALUES are the current always-on behaviour so no
-// scan changes until EFFORT-4 introduces per-level differentiation.
+// Cap ceilings used by the effort table. fullDecodeDepth mirrors
+// extract.maxDecodeDepth (the always-on MSD recursion bound); fullDecodeIters
+// mirrors extract.maxDecodeIterations. The lowest level still does ONE decode
+// layer (a single base64/hex unwrap is the common case and cheap), so a level-1
+// scan is not blind to a one-layer dropper.
+const (
+	fullDecodeDepth = 4
+	fullDecodeIters = 256
+	minDecodeIters  = 64 // floor so even level 1 can finish a small worklist
+)
+
+// EffortProfileFor maps a resolved effort level to its cap profile (EFFORT-4).
+// The dial is now LIVE: a low level unwraps fewer MSD decode layers, skips the
+// PDF structural-indicator pass, and skips the reputation-feed lookups; a high
+// level runs everything at full depth. The mapping is expressed against
+// EffortMax (the operator's ceiling) so it scales whatever ceiling is configured,
+// not a hard-coded 10.
+//
+//   - DecodeDepth ramps 1..fullDecodeDepth linearly across the level range.
+//   - PDFDeepen turns on once past the lowest fifth of the range (the structural
+//     indicator pass is cheap but FP-bearing; the cheapest tier skips it).
+//   - ReputationFeeds turn on in the upper half (the external-feed lookups are
+//     the most expensive per-scan cost; shed them first under low effort).
 //
 // level is assumed already resolved/clamped to [1, EffortMax] by
 // ResolveEffortLevel; it is defensively floored at 1 here so a stray 0 can't
-// produce a degenerate profile.
-func EffortProfileFor(level int) EffortProfile {
+// produce a degenerate profile. effortMax is the configured ceiling (>=1).
+func EffortProfileFor(level, effortMax int) EffortProfile {
+	if effortMax < 1 {
+		effortMax = 1
+	}
 	if level < 1 {
 		level = 1
 	}
-	// Inert full-depth profile (EFFORT-1). EFFORT-4 replaces the constants below
-	// with a level-indexed table.
+	if level > effortMax {
+		level = effortMax
+	}
+
+	// frac in [0,1]: 0 at level 1, 1 at the ceiling. A 1-level ceiling is always
+	// full depth (there is no room to shed).
+	var frac float64 = 1
+	if effortMax > 1 {
+		frac = float64(level-1) / float64(effortMax-1)
+	}
+
+	// DecodeDepth: 1 at the floor, fullDecodeDepth at the ceiling, rounded.
+	depth := 1 + int(frac*float64(fullDecodeDepth-1)+0.5)
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > fullDecodeDepth {
+		depth = fullDecodeDepth
+	}
+	// DecodeIterations scale with depth so a shallow walk isn't handed the full
+	// 256-dequeue budget it can't use; floored so a small worklist still drains.
+	iters := minDecodeIters + int(frac*float64(fullDecodeIters-minDecodeIters)+0.5)
+	if iters > fullDecodeIters {
+		iters = fullDecodeIters
+	}
+
 	return EffortProfile{
-		Level:           level,
-		DecodeDepth:     4, // mirrors extract.maxDecodeDepth (current always-on value)
-		PDFDeepen:       true,
-		ReputationFeeds: true,
+		Level:            level,
+		DecodeDepth:      depth,
+		DecodeIterations: iters,
+		PDFDeepen:        frac > 0.2,  // skip only the cheapest tier (lowest ~fifth)
+		ReputationFeeds:  frac >= 0.5, // external feeds shed first: upper half only
+	}
+}
+
+// resolveScanEffort picks the effort level a scan runs at. The HTTP path folds a
+// resolved level (>=1) into ScanMeta; any caller that did NOT resolve effort (the
+// `yarad scan` CLI, a direct Scan with a bare ScanMeta) leaves it at 0. An
+// unresolved (<1) level means "run at the configured ceiling" — full depth — so
+// an un-resolved scan never silently degrades to the cheapest tier.
+func resolveScanEffort(metaEffort, effortMax int) int {
+	if metaEffort < 1 {
+		return effortMax
+	}
+	return metaEffort
+}
+
+// ExtractOptions builds the extract package's per-request Options from this
+// resolved profile plus the scan deadline. It is the single mapping point
+// between the yarad-side effort profile and the extract-side caps (EFFORT-4).
+func (p EffortProfile) ExtractOptions(deadline time.Time) *extract.Options {
+	return &extract.Options{
+		Deadline:         deadline,
+		DecodeDepth:      p.DecodeDepth,
+		DecodeIterations: p.DecodeIterations,
+		PDFDeepen:        p.PDFDeepen,
 	}
 }
 

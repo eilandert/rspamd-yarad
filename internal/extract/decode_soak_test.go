@@ -98,7 +98,7 @@ func TestSoakBase64Bomb(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	res := &Result{}
 	start := time.Now()
-	fromEncoded(buf, res, deadline)
+	fromEncoded(buf, res, FullOptions(deadline))
 	elapsed := time.Since(start)
 
 	// Wall-time guard: if we somehow spun for >10 s the decoder is not bounded.
@@ -129,7 +129,7 @@ func TestSoakQuineCycle(t *testing.T) {
 	done := make(chan Result, 1)
 	go func() {
 		res := &Result{}
-		fromEncoded(buf, res, time.Now().Add(5*time.Second))
+		fromEncoded(buf, res, FullOptions(time.Now().Add(5*time.Second)))
 		done <- *res
 	}()
 
@@ -182,7 +182,7 @@ func TestSoak4MiBCarrier(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	res := &Result{}
 	start := time.Now()
-	fromEncoded(buf, res, deadline)
+	fromEncoded(buf, res, FullOptions(deadline))
 	elapsed := time.Since(start)
 
 	if elapsed > 10*time.Second {
@@ -202,7 +202,7 @@ func TestSoakDeadlineHonored(t *testing.T) {
 
 	start := time.Now()
 	res := &Result{}
-	fromEncoded(buf, res, expiredDeadline)
+	fromEncoded(buf, res, FullOptions(expiredDeadline))
 	elapsed := time.Since(start)
 
 	if elapsed > 500*time.Millisecond {
@@ -230,7 +230,7 @@ func FuzzFromEncoded(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		res := &Result{}
-		fromEncoded(data, res, time.Now().Add(time.Second))
+		fromEncoded(data, res, FullOptions(time.Now().Add(time.Second)))
 		assertDecodeInvariants(t, *res)
 	})
 }

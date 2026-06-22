@@ -125,11 +125,10 @@ type Config struct {
 	// above it. The resolved level folds into the verdict-cache key (the same
 	// bytes scanned at effort 2 vs 9 can yield different verdicts).
 	//
-	// EFFORT-1 wires the contract (config + resolution + cache key + profile
-	// struct); the individual caps still read their package constants until
-	// EFFORT-4 retrofits them to read EffortProfile. So today every level behaves
-	// identically — the plumbing is inert but present, so each new feature can
-	// wire its cap in from day one.
+	// EFFORT-4 made the dial LIVE: a level now resolves to a real cap profile
+	// (EffortProfileFor) that scales the MSD decode depth/iterations, the PDF
+	// structural-indicator pass, and whether the URLhaus/MalwareBazaar reputation
+	// feeds run. A low level is cheaper and shallower; EffortMax runs everything.
 	Effort     int  // YARAD_EFFORT     (default = EffortMax; the env/default level)
 	EffortMax  int  // YARAD_EFFORT_MAX (default 10; hard ceiling for header override)
 	EffortAuto bool // YARAD_EFFORT=auto (EFFORT-2): derive the per-request level from

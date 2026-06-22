@@ -188,7 +188,7 @@ func TestFromEncodedDefangPath(t *testing.T) {
 	input := []byte(strings.Repeat("x", 20) + " hxxp://malware[.]example/payload " + strings.Repeat("x", 20))
 
 	res := &Result{}
-	fromEncoded(input, res, time.Time{})
+	fromEncoded(input, res, FullOptions(time.Time{}))
 
 	found := false
 	for _, s := range res.Streams {
@@ -227,7 +227,7 @@ func TestFromEncodedDefangThenBase64(t *testing.T) {
 	carrier := []byte("hxxp://evil[.]com/?data=" + b64 + " extra-padding-for-text-gate")
 
 	res := &Result{}
-	fromEncoded(carrier, res, time.Time{})
+	fromEncoded(carrier, res, FullOptions(time.Time{}))
 
 	// We expect at minimum two streams: the un-defanged URL string and the
 	// base64-decoded inner payload.

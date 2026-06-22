@@ -55,7 +55,12 @@ func extractChild(data []byte, res *Result, b *archiveBudget, depth int, deadlin
 		// OLE2: legacy macro doc, MSI, .msg, or embedded package — fromOLE covers all.
 		fromOLE(data, res, b, depth, deadline)
 	case isPDF(data):
-		fromPDF(data, res, deadline)
+		// A PDF carried inside another container (archive/.msg/RTF object). The
+		// effort caps aren't threaded through the nested-carrier chain (sink-only
+		// EFFORT-4 scope); a nested PDF is rare and already deep in a carrier, so
+		// run it at full PDF-deepen depth — the more-detection default. The shared
+		// deadline still bounds it.
+		fromPDF(data, res, FullOptions(deadline))
 	case isRTF(data):
 		fromRTF(data, res, b, depth, deadline)
 	case isLNK(data):
