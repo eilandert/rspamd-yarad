@@ -113,7 +113,7 @@ func TestDecodeDecSeqNegativeMixed(t *testing.T) {
 	// Mix of ; and , separators — should NOT decode (conservative FP gate).
 	buf := []byte("104,116,116;112,58,47,47,101,118,105,108,46,99,111,109")
 	before := &Result{}
-	fromEncoded(buf, before, time.Time{})
+	fromEncoded(buf, before, FullOptions(time.Time{}))
 	// Just assert it doesn't panic; mixed separators must not produce garbage.
 	_ = before
 }

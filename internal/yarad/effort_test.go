@@ -3,6 +3,7 @@ package yarad
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestResolveEffortLevel(t *testing.T) {
@@ -34,16 +35,90 @@ func TestResolveEffortLevel(t *testing.T) {
 }
 
 func TestEffortProfileFor(t *testing.T) {
-	// EFFORT-1: inert full-depth profile, Level carried through, level floored.
-	if p := EffortProfileFor(5); p.Level != 5 {
+	const max = 10
+
+	// Level carried through; out-of-range floored/capped.
+	if p := EffortProfileFor(5, max); p.Level != 5 {
 		t.Errorf("Level not carried: got %d", p.Level)
 	}
-	if p := EffortProfileFor(0); p.Level != 1 {
+	if p := EffortProfileFor(0, max); p.Level != 1 {
 		t.Errorf("stray 0 not floored to 1: got %d", p.Level)
 	}
-	p := EffortProfileFor(3)
-	if !p.PDFDeepen || !p.ReputationFeeds || p.DecodeDepth != 4 {
-		t.Errorf("EFFORT-1 profile must be full-depth/inert, got %+v", p)
+	if p := EffortProfileFor(99, max); p.Level != max {
+		t.Errorf("level above ceiling not capped: got %d", p.Level)
+	}
+
+	// Ceiling = full depth, every feature on.
+	top := EffortProfileFor(max, max)
+	if top.DecodeDepth != fullDecodeDepth || top.DecodeIterations != fullDecodeIters ||
+		!top.PDFDeepen || !top.ReputationFeeds {
+		t.Errorf("ceiling profile must be full-depth/all-on, got %+v", top)
+	}
+
+	// Floor = shallowest: one decode layer, indicator pass + feeds shed.
+	low := EffortProfileFor(1, max)
+	if low.DecodeDepth != 1 {
+		t.Errorf("floor DecodeDepth must be 1, got %d", low.DecodeDepth)
+	}
+	if low.DecodeIterations < 1 {
+		t.Errorf("floor DecodeIterations must be >=1, got %d", low.DecodeIterations)
+	}
+	if low.PDFDeepen {
+		t.Error("floor must skip the PDF indicator pass")
+	}
+	if low.ReputationFeeds {
+		t.Error("floor must skip the reputation feeds")
+	}
+
+	// Monotonic: depth and iters never decrease as the level rises.
+	prevD, prevI := 0, 0
+	for lvl := 1; lvl <= max; lvl++ {
+		p := EffortProfileFor(lvl, max)
+		if p.DecodeDepth < prevD {
+			t.Errorf("DecodeDepth not monotonic at level %d: %d < %d", lvl, p.DecodeDepth, prevD)
+		}
+		if p.DecodeIterations < prevI {
+			t.Errorf("DecodeIterations not monotonic at level %d: %d < %d", lvl, p.DecodeIterations, prevI)
+		}
+		if p.DecodeDepth > fullDecodeDepth || p.DecodeIterations > fullDecodeIters {
+			t.Errorf("level %d exceeds ceilings: %+v", lvl, p)
+		}
+		prevD, prevI = p.DecodeDepth, p.DecodeIterations
+	}
+
+	// Feeds turn on in the upper half (frac>=0.5). Level 6/10 → frac 0.55 → on;
+	// level 3/10 → frac 0.22 → off.
+	if p := EffortProfileFor(6, max); !p.ReputationFeeds {
+		t.Errorf("reputation feeds must be on at level 6/10, got %+v", p)
+	}
+	if p := EffortProfileFor(3, max); p.ReputationFeeds {
+		t.Errorf("reputation feeds must be off at level 3/10, got %+v", p)
+	}
+
+	// Degenerate 1-level ceiling: no room to shed → full depth.
+	if p := EffortProfileFor(1, 1); p.DecodeDepth != fullDecodeDepth || !p.PDFDeepen || !p.ReputationFeeds {
+		t.Errorf("1-level ceiling must be full-depth, got %+v", p)
+	}
+
+	// ExtractOptions mapping mirrors the profile.
+	opts := top.ExtractOptions(time.Time{})
+	if opts.DecodeDepth != top.DecodeDepth || opts.DecodeIterations != top.DecodeIterations ||
+		opts.PDFDeepen != top.PDFDeepen {
+		t.Errorf("ExtractOptions mismatch: %+v vs %+v", opts, top)
+	}
+}
+
+func TestResolveScanEffort(t *testing.T) {
+	// Unresolved (0 or negative) -> configured ceiling, NOT level 1.
+	if got := resolveScanEffort(0, 10); got != 10 {
+		t.Errorf("unresolved effort must run at ceiling 10, got %d", got)
+	}
+	if got := resolveScanEffort(-1, 7); got != 7 {
+		t.Errorf("negative effort must run at ceiling 7, got %d", got)
+	}
+	// A resolved level passes through unchanged.
+	if got := resolveScanEffort(3, 10); got != 3 {
+		t.Errorf("resolved level must pass through, got %d", got)
 	}
 }
 

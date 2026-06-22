@@ -178,7 +178,7 @@ func TestDecodePerStreamBudget(t *testing.T) {
 		res.Streams = append(res.Streams, []byte(b.String()))
 	}
 	// Decode pass over the pre-populated streams (buf empty).
-	fromEncoded(nil, res, time.Time{})
+	fromEncoded(nil, res, FullOptions(time.Time{}))
 
 	// A shared 32-blob budget would stop after ~6 streams (6*5=30). Assert the LAST
 	// stream's payload decoded — only possible if each stream had its own budget.
@@ -201,10 +201,10 @@ func TestDecodeMSD2DedupsRepeatedBlob(t *testing.T) {
 	outer := base64.StdEncoding.EncodeToString([]byte(l1))
 
 	once := &Result{Streams: [][]byte{[]byte(outer)}}
-	fromEncoded(nil, once, time.Time{})
+	fromEncoded(nil, once, FullOptions(time.Time{}))
 
 	twice := &Result{Streams: [][]byte{[]byte(outer + " " + outer)}}
-	fromEncoded(nil, twice, time.Time{})
+	fromEncoded(nil, twice, FullOptions(time.Time{}))
 
 	if !streamsContain(*twice, inner) {
 		t.Fatalf("payload not decoded at all; streams=%d", len(twice.Streams))

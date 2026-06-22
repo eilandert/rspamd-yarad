@@ -435,7 +435,8 @@ func dridexURLDecode(in string) (out string, ok bool) {
 // source stream — so one noisy stream can't starve the others' detection in a
 // multi-stream document. The global res.Streams/maxStreams ceiling still bounds
 // the absolute total across all streams.
-func fromEncoded(buf []byte, res *Result, deadline time.Time) {
+func fromEncoded(buf []byte, res *Result, opts *Options) {
+	deadline := opts.Deadline
 	// Snapshot: the raw buffer plus the streams present right now. Appends below
 	// grow res.Streams (possibly reallocating its backing array) but never touch
 	// this slice's elements, so we iterate a stable, finite set.
@@ -450,6 +451,13 @@ func fromEncoded(buf []byte, res *Result, deadline time.Time) {
 	// maxDecodedBlobs / maxCumulativeDecoded ceilings (a memory amplifier on
 	// crafted multi-stream input). These run across the WHOLE fromEncoded pass.
 	var defangBlobs, defangCum int
+	// EFFORT-4 monotonicity note: a higher opts.DecodeDepth can emit more blobs
+	// from an EARLIER source, so under maxStreams saturation a later source may be
+	// reached at low effort but skipped at high effort — coverage is monotone only
+	// up to the global maxStreams ceiling, below which source ORDER (not effort)
+	// decides. maxStreams is large relative to a realistic per-source blob count,
+	// so this is a corner case on crafted multi-stream input; tracked as
+	// EFFORT-4-MAXSTREAMS-ORDER in TODO.md rather than reordering the worklist.
 	for _, src := range sources {
 		if expired(deadline) || len(res.Streams) >= maxStreams {
 			break
@@ -479,12 +487,12 @@ func fromEncoded(buf []byte, res *Result, deadline time.Time) {
 					// (a defanged-then-base64 payload); a plain cleartext URL is
 					// emitted above but NOT re-fed, to avoid an un-gated amplifier.
 					if looksEncoded(ud) {
-						total += decodeSourceTree(ud, res, deadline)
+						total += decodeSourceTree(ud, res, opts)
 					}
 				}
 			}
 		}
-		total += decodeSourceTree(src, res, deadline)
+		total += decodeSourceTree(src, res, opts)
 	}
 	// Record how many blobs the pass appended (always the trailing res.Streams),
 	// so the caller can keep the macro/extracted-stream metrics free of decode noise.
@@ -497,7 +505,19 @@ func fromEncoded(buf []byte, res *Result, deadline time.Time) {
 // recursion depths of this source via the closure below. A FIFO worklist gives
 // breadth-first unwrapping so the budget is spent on shallow layers (more likely
 // to be the real payload) before deep ones.
-func decodeSourceTree(src []byte, res *Result, deadline time.Time) int {
+func decodeSourceTree(src []byte, res *Result, opts *Options) int {
+	deadline := opts.Deadline
+	// EFFORT-4: per-request caps, floored to 1 so a zero-value Options never
+	// produces a zero-depth (no-op) or unbounded walk. A lower effort level
+	// unwraps fewer stacked layers and dequeues fewer worklist items.
+	maxDepth := opts.DecodeDepth
+	if maxDepth < 1 {
+		maxDepth = 1
+	}
+	maxIters := opts.DecodeIterations
+	if maxIters < 1 {
+		maxIters = 1
+	}
 	type item struct {
 		data  []byte
 		depth int
@@ -563,7 +583,7 @@ func decodeSourceTree(src []byte, res *Result, deadline time.Time) int {
 	}
 
 	for len(queue) > 0 {
-		if expired(deadline) || iters >= maxDecodeIterations ||
+		if expired(deadline) || iters >= maxIters ||
 			blobs >= maxDecodedBlobs || cum >= maxCumulativeDecoded ||
 			len(res.Streams) >= maxStreams {
 			break
@@ -597,7 +617,7 @@ func decodeSourceTree(src []byte, res *Result, deadline time.Time) int {
 		// `+1 < maxDecodeDepth` bounds a decode chain to exactly maxDecodeDepth
 		// passes: the source decodes at depth 0 and each child one deeper, so the
 		// deepest decoded item is at depth maxDecodeDepth-1.
-		if cur.depth+1 < maxDecodeDepth {
+		if cur.depth+1 < maxDepth {
 			// `children` are exactly the blobs emit() ACCEPTED this pass, so each is
 			// already distinct (emit's markSeen dropped duplicates). Re-enqueue the
 			// still-encoded ones one layer deeper; the dedup at emit time means a

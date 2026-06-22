@@ -37,7 +37,46 @@ import (
 // oleparse upgrade that changes output) invalidates cached verdicts the same
 // way a rule-set change does — important for the shared Redis L2 that survives
 // an image rebuild. Bump it whenever the bytes Extract emits could change.
-const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex+oleid+bounds+ole2link+pdfdeepen+msd+pdflex+nested+pdfendstr+pdffilter+defang+msdenc+msddeep+xlmbiff+xlsb+slk+xlminterp+oledir+oletimes+enctype+digsig+pdfendstr2+rtfquote+csvdde"
+const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex+oleid+bounds+ole2link+pdfdeepen+msd+pdflex+nested+pdfendstr+pdffilter+defang+msdenc+msddeep+xlmbiff+xlsb+slk+xlminterp+oledir+oletimes+enctype+digsig+pdfendstr2+rtfquote+csvdde+effort4"
+
+// Options carries the per-request extraction caps (EFFORT-4) plus the time
+// budget. It is resolved once per scan from the effort level and threaded to the
+// two cap-sink chains that honour a per-request bound: the MSD multi-layer decode
+// (DecodeDepth/DecodeIterations) and the PDF structural-indicator pass
+// (PDFDeepen). Every other extractor still consults Deadline directly; only these
+// two read effort-scaled caps today. A higher effort level widens the caps; the
+// scanner builds Options from EffortProfileFor (see yarad.EffortProfile).
+//
+// Deadline mirrors the old bare deadline argument (zero == no time limit). The
+// cap fields are floored to sane minimums by their read-sites so a zero-value
+// Options (e.g. a test passing &Options{}) degrades to the shallowest safe
+// behaviour rather than an unbounded or zero-depth walk.
+type Options struct {
+	Deadline time.Time // zero == no wall-clock limit (mirrors the old deadline arg)
+
+	// DecodeDepth caps the MSD multi-layer static-decode recursion (decodeSourceTree).
+	// DecodeIterations caps worklist dequeues per source stream. Both are floored
+	// to 1 at the read-site. Effort scales these: a low level unwraps fewer layers.
+	DecodeDepth      int
+	DecodeIterations int
+
+	// PDFDeepen enables the pdfid-style structural-indicator pass over a PDF
+	// (fromPDFIndicators). Disabled at low effort: only the inflated object streams
+	// are scanned, not the action/JS/launch name markers.
+	PDFDeepen bool
+}
+
+// FullOptions returns an Options at maximum depth for the given deadline — the
+// historical always-on behaviour. Used by tests and any caller that wants no
+// effort scaling. Values mirror the extract package's own ceilings.
+func FullOptions(deadline time.Time) *Options {
+	return &Options{
+		Deadline:         deadline,
+		DecodeDepth:      maxDecodeDepth,
+		DecodeIterations: maxDecodeIterations,
+		PDFDeepen:        true,
+	}
+}
 
 // OLE2/CFB compound-document magic (legacy .doc/.xls, the vbaProject.bin
 // embedded in OOXML, AND the encrypted-OOXML wrapper) and the local-file-header
@@ -200,17 +239,32 @@ type Result struct {
 	DecodedStreams int
 }
 
-// Extract reports the plaintext hidden inside an OLE2/OOXML container — the
-// decompressed VBA macro source — plus flags describing what the buffer was. For
-// anything that is not a recognised container it returns the zero Result
+// Extract is the back-compat full-depth entry point: it runs every extractor at
+// maximum depth, bounded only by deadline (zero == no limit). Used by tests and
+// the -extract CLI tool. The server scan path calls ExtractWithOptions to apply
+// per-request effort caps (EFFORT-4).
+func Extract(buf []byte, deadline time.Time) Result {
+	return ExtractWithOptions(buf, FullOptions(deadline))
+}
+
+// ExtractWithOptions reports the plaintext hidden inside an OLE2/OOXML container —
+// the decompressed VBA macro source — plus flags describing what the buffer was.
+// For anything that is not a recognised container it returns the zero Result
 // (IsDoc=false, no streams). It never returns an error and never panics out: a
 // poison attachment degrades to a raw-only scan, never crashes the scan path.
 //
-// deadline bounds the OOXML extraction loop (decompression + oleparse runs are
-// done before any libyara scan, so a small compressed bomb could otherwise burn
-// CPU before the scan budget is ever consulted). A zero deadline means no time
-// limit; the cumulative byte/count caps still apply regardless.
-func Extract(buf []byte, deadline time.Time) (res Result) {
+// opts carries the time budget (opts.Deadline; zero == no limit) plus the
+// per-request effort caps (EFFORT-4). The deadline bounds the OOXML extraction
+// loop (decompression + oleparse runs are done before any libyara scan, so a
+// small compressed bomb could otherwise burn CPU before the scan budget is ever
+// consulted); the effort caps scale the MSD decode depth and the PDF indicator
+// pass. A nil opts degrades to FullOptions (no time limit, full depth). The
+// cumulative byte/count caps still apply regardless.
+func ExtractWithOptions(buf []byte, opts *Options) (res Result) {
+	if opts == nil {
+		opts = FullOptions(time.Time{})
+	}
+	deadline := opts.Deadline
 	// oleparse walks attacker-controlled binary offsets; a malformed document can
 	// drive it to panic. Recover and mark it so the caller still scans raw bytes.
 	defer func() {
@@ -251,7 +305,7 @@ func Extract(buf []byte, deadline time.Time) (res Result) {
 		// A PDF: inflate its FlateDecode object streams so hidden JS / actions /
 		// embedded files are scanned, not buried in compressed objects.
 		res.IsDoc = true
-		fromPDF(buf, &res, deadline)
+		fromPDF(buf, &res, opts)
 	case isRTF(buf):
 		// An RTF document: hex-decode its \objdata embedded-object groups so a
 		// dropped OLE2 doc / package / OLENativeStream payload (CVE-2017-0199 /
@@ -300,7 +354,7 @@ func Extract(buf []byte, deadline time.Time) (res Result) {
 	// reversed payload hidden in a script body or a decompressed macro is decoded
 	// and re-scanned. Snapshotted internally so decoded blobs are not re-decoded
 	// (depth cap 1). Best-effort; binary container bytes are skipped.
-	fromEncoded(buf, &res, deadline)
+	fromEncoded(buf, &res, opts)
 	return res
 }
 

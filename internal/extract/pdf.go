@@ -78,7 +78,8 @@ func isPDF(buf []byte) bool {
 
 // fromPDF carves and inflates the object streams of a PDF, appending each
 // decompressed body to res.Streams. Sets IsPDF. Bounded by the maxPDF* caps.
-func fromPDF(buf []byte, res *Result, deadline time.Time) {
+func fromPDF(buf []byte, res *Result, opts *Options) {
+	deadline := opts.Deadline
 	res.IsPDF = true
 	scan := buf
 	if len(scan) > maxPDFScan {
@@ -206,7 +207,11 @@ func fromPDF(buf []byte, res *Result, deadline time.Time) {
 	// Structural dropper indicators (PDF-DEEPEN): action/JS/launch/embedded-file
 	// keywords that auto-fire or carry a payload. These are name tokens in the
 	// PDF body itself (not the inflated streams), so they are surfaced separately.
-	fromPDFIndicators(scan, res, deadline)
+	// EFFORT-4: gated on opts.PDFDeepen — a low effort level scans only the
+	// inflated object streams (above), not the structural-indicator markers.
+	if opts.PDFDeepen {
+		fromPDFIndicators(scan, res, deadline)
+	}
 }
 
 // pdfIndicatorNames is the set of name tokens fromPDFIndicators looks for, used

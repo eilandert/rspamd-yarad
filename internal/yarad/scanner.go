@@ -95,6 +95,10 @@ type Scanner struct {
 	urlhaus    *urlhaus.Checker
 	urlhausMax int
 
+	// effortMax is the operator's effort ceiling (cfg.EffortMax), used to resolve
+	// a scan's per-request cap profile from meta.Effort (EFFORT-4).
+	effortMax int
+
 	// Optional abuse.ch MalwareBazaar attachment-hash lookup (nil when no key).
 	mbazaar *mbazaar.Checker
 
@@ -293,6 +297,7 @@ func NewScanner(cfg *Config, logf func(string, ...any)) (*Scanner, error) {
 		srcFile:      cfg.RulesPath,
 		urlhaus:      urlhaus.New(cfg.URLhausKey, cfg.URLhausRefresh, cfg.CacheDir, logf), // nil if no key
 		urlhausMax:   cfg.URLhausMaxURLs,
+		effortMax:    cfg.EffortMax,
 		mbazaar:      mbazaar.New(cfg.MBazaarKey, cfg.MBazaarRefresh, cfg.MBazaarFeed, cfg.CacheDir, logf), // nil if no key
 		canary:       cfg.Canary,
 		baseDenylist: cfg.RuleDenylist,
@@ -727,6 +732,17 @@ func (s *Scanner) Scan(buf []byte, digest [32]byte, meta ScanMeta) ([]Match, err
 		deadline = time.Now().Add(s.scanTimeout)
 	}
 
+	// EFFORT-4: resolve the per-request cap profile from the effort level the
+	// server folded into meta (header ?? auto ?? env, already clamped to the
+	// ceiling). The HTTP path always sets meta.Effort >= 1 (ResolveEffortLevel);
+	// any caller that did NOT resolve effort (the `yarad scan` CLI, a direct
+	// internal Scan with a bare ScanMeta) leaves it at 0 — treat that as "run at
+	// the configured ceiling", NOT as level 1, so an un-resolved scan keeps full
+	// depth rather than silently degrading to the cheapest tier. The profile
+	// drives the MSD decode depth and PDF indicator pass (via extract.Options
+	// below) and whether the external reputation feeds run (gated near the end).
+	profile := EffortProfileFor(resolveScanEffort(meta.Effort, s.effortMax), s.effortMax)
+
 	// Raw bytes first. A failure here is the scanner's verdict (propagated,
 	// fail-open at the server) — unchanged behaviour for non-documents.
 	out, err := s.scanOne(rules, buf, scanVars{filename: meta.Filename, extension: meta.Extension, fileType: meta.FileType}, s.scanTimeout)
@@ -736,7 +752,7 @@ func (s *Scanner) Scan(buf []byte, digest [32]byte, meta ScanMeta) ([]Match, err
 	// Pre-extract any OLE2/OOXML macro source and account for it. The flags feed
 	// /metrics so this path is observable; the streams are scanned below. The
 	// same overall deadline bounds extraction time, not just the libyara scans.
-	res := extract.Extract(buf, deadline)
+	res := extract.ExtractWithOptions(buf, profile.ExtractOptions(deadline))
 	if res.IsDoc {
 		s.exDocs.Add(1)
 	}
@@ -852,7 +868,12 @@ func (s *Scanner) Scan(buf []byte, digest [32]byte, meta ScanMeta) ([]Match, err
 	// attachment, as the plugin POSTed it) against known malware samples —
 	// a direct known-bad verdict independent of the YARA rules. Only the raw
 	// buffer is hashed (samples are whole files, not decompressed macros).
-	if s.mbazaar != nil {
+	// EFFORT-4: the external reputation feeds are the most expensive per-scan
+	// cost, so a low effort level sheds them (profile.ReputationFeeds=false) and
+	// the verdict rests on the local rules only. The resolved level is part of the
+	// verdict-cache key, so a cheap-tier (feeds-off) verdict never masks a later
+	// full-tier (feeds-on) one for the same bytes.
+	if profile.ReputationFeeds && s.mbazaar != nil {
 		for _, h := range s.mbazaar.CheckDigest(digest) {
 			out = append(out, Match{Rule: h.Rule(), Tags: []string{"malwarebazaar"}, Meta: map[string]string{"sha256": h.SHA256}})
 		}
@@ -861,7 +882,7 @@ func (s *Scanner) Scan(buf []byte, digest [32]byte, meta ScanMeta) ([]Match, err
 	// known malware-distribution URLs (incl. defanged ones). Each distinct URL
 	// becomes its own match (deduped across buffers) so the mail history shows
 	// exactly which URLs hit.
-	if s.urlhaus != nil {
+	if profile.ReputationFeeds && s.urlhaus != nil {
 		seenURL := make(map[string]struct{})
 		addHits := func(b []byte) {
 			for _, h := range s.urlhaus.Check(b, s.urlhausMax) {

@@ -32,7 +32,7 @@ func BenchmarkDecodeMultiLayerBomb(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		res := &Result{}
-		fromEncoded(buf, res, benchDeadline())
+		fromEncoded(buf, res, FullOptions(benchDeadline()))
 	}
 }
 
