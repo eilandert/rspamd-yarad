@@ -47,7 +47,7 @@ type lruCache struct {
 	ll        *list.List               // front = most recently used
 	items     map[string]*list.Element // key -> element
 	redis     *redisLayer              // optional shared L2 (nil when no YARAD_REDIS_URL)
-	evictions atomic.Int64             // LRU evictions (capacity-driven, not TTL expiry)
+	evictions atomic.Uint64 // LRU evictions (capacity-driven, not TTL expiry)
 }
 
 type entry struct {
@@ -155,7 +155,7 @@ func (l *lruCache) Degraded() string {
 
 // Evictions returns the total number of LRU capacity-evictions since start.
 // TTL expiry is not counted; only entries pushed out by new insertions into a full cache.
-func (c *lruCache) Evictions() int64 { return c.evictions.Load() }
+func (c *lruCache) Evictions() uint64 { return c.evictions.Load() }
 
 // removeElement must be called with the lock held.
 func (c *lruCache) removeElement(el *list.Element) {
