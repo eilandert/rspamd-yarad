@@ -78,6 +78,7 @@ rule Maldoc_Suspicious_VBA_Keywords : maldoc heuristic suspicious
         $k28 = "Chr("                       ascii wide nocase
         $k29 = "Xor "                       ascii wide nocase
         $k30 = "ExecuteGlobal"              ascii wide nocase
+        $k31 = "Execute "                   ascii wide nocase
     condition:
         filesize < 16MB and 6 of them
 }
