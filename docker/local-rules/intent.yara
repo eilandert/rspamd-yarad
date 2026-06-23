@@ -123,3 +123,30 @@ rule Multilayer_Encoded_Payload : maldoc heuristic suspicious {
     condition:
         $marker
 }
+
+rule BAT_Dropper_Curl_Execute : bat heuristic suspicious
+{
+    meta:
+        author      = "yarad"
+        description = "BAT script downloads a binary with curl/wget/bitsadmin then executes it via rundll32 or directly"
+        score       = "60"
+    strings:
+        // download tools
+        $d1 = "curl " ascii wide nocase
+        $d2 = "wget " ascii wide nocase
+        $d3 = "bitsadmin" ascii wide nocase
+        $d4 = "certutil" ascii wide nocase
+        // execution of downloaded payload
+        $e1 = "rundll32" ascii wide nocase
+        $e2 = "regsvr32" ascii wide nocase
+        $e3 = "mshta" ascii wide nocase
+        $e4 = "wscript" ascii wide nocase
+        $e5 = "cscript" ascii wide nocase
+        // download flag that writes to disk
+        $f1 = " -o " ascii nocase
+        $f2 = " -O " ascii nocase
+        $f3 = " -OutFile" ascii nocase
+        $f4 = "/transfer" ascii nocase
+    condition:
+        filesize < 512KB and 1 of ($d*) and 1 of ($e*) and 1 of ($f*)
+}
