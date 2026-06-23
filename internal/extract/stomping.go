@@ -66,7 +66,7 @@ func detectStomping(ole *oleparse.OLEFile, result *Result, deadline time.Time) {
 	}
 
 	// The dir stream is MS-OVBA compressed. Decompress it.
-	decompressed := oleparse.DecompressStream(rawDir)
+	decompressed := decompressOVBA(rawDir)
 	if len(decompressed) == 0 {
 		return
 	}
@@ -101,7 +101,7 @@ func detectStomping(ole *oleparse.OLEFile, result *Result, deadline time.Time) {
 		}
 
 		// Decompress the source portion (from MODULEOFFSET onward).
-		sourceBytes := oleparse.DecompressStream(streamData[m.offset:])
+		sourceBytes := decompressOVBA(streamData[m.offset:])
 		srcEffective := effectiveSourceLen(sourceBytes)
 
 		if srcEffective >= stompSourceThreshold {
@@ -356,6 +356,17 @@ moduleLoop:
 		}
 	}
 	return result, nil
+}
+
+// decompressOVBA calls oleparse.DecompressStream and truncates the result to
+// maxBytesPerModule. This prevents a crafted compressed stream (copy-token or
+// chunk-size bomb) from expanding into unbounded heap allocation.
+func decompressOVBA(raw []byte) []byte {
+	out := oleparse.DecompressStream(raw)
+	if len(out) > maxBytesPerModule {
+		out = out[:maxBytesPerModule]
+	}
+	return out
 }
 
 // vbaCompressStream implements the MS-OVBA CompressStream algorithm using only

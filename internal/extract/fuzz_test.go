@@ -108,6 +108,27 @@ func FuzzExtract(f *testing.F) {
 	})
 }
 
+// FuzzDecompressStream drives decompressOVBA (the size-capped wrapper around
+// oleparse.DecompressStream) with arbitrary bytes. The invariant: never panic,
+// always return a slice of length <= maxBytesPerModule.
+func FuzzDecompressStream(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{0x01})
+	// Minimal raw chunk: signature + header word (raw, 4096 bytes) — but just a
+	// short stub; the fuzzer will mutate it into interesting shapes.
+	f.Add([]byte{0x01, 0x03, 0x03})
+	// Copy-token seed: signature + compressed-chunk header with high bit set,
+	// followed by a copy-token pointing past the start of the window.
+	f.Add([]byte{0x01, 0x00, 0xB0, 0xFF, 0x03})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		out := decompressOVBA(data)
+		if len(out) > maxBytesPerModule {
+			t.Fatalf("decompressOVBA returned %d bytes > cap %d", len(out), maxBytesPerModule)
+		}
+	})
+}
+
 // FuzzFoldXLMFormula drives the XLM constant-folder with arbitrary formula
 // text. foldXLMFormula↔foldFunctionCall are mutually recursive over attacker-
 // controlled nesting, so the invariant is: never overflow the stack, always
