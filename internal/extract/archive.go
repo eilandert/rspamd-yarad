@@ -282,6 +282,14 @@ func looksLikeTar(data []byte) bool {
 func unpack7z(buf []byte, res *Result, b *archiveBudget, depth int, deadline time.Time) {
 	zr, err := sevenzip.NewReader(bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
+		// A header-encrypted 7z (whole-archive AES over the file LIST) fails to
+		// open at all — the per-member isEncryptedErr path below is unreachable,
+		// so classify the reader error here and emit ARCHIVE-ENCRYPTED before
+		// bailing rather than silently dropping the signal.
+		if isEncryptedErr(err) {
+			res.IsArchive = true
+			markEncryptedArchive(res)
+		}
 		return
 	}
 	res.IsArchive = true
@@ -328,6 +336,10 @@ func isEncryptedErr(err error) bool {
 func unpackRar(buf []byte, res *Result, b *archiveBudget, depth int, deadline time.Time) {
 	rr, err := rardecode.NewReader(bytes.NewReader(buf))
 	if err != nil {
+		if isEncryptedErr(err) {
+			res.IsArchive = true
+			markEncryptedArchive(res)
+		}
 		return
 	}
 	res.IsArchive = true
@@ -337,6 +349,12 @@ func unpackRar(buf []byte, res *Result, b *archiveBudget, depth int, deadline ti
 		}
 		h, err := rr.Next()
 		if err != nil {
+			// A whole-archive header-encrypted RAR errors here (before any header
+			// with HeaderEncrypted is returned), so the h.Encrypted check below is
+			// unreachable for that case — classify the Next() error and mark.
+			if isEncryptedErr(err) {
+				markEncryptedArchive(res)
+			}
 			break // EOF, encrypted-header, or corrupt: stop, keep what we have
 		}
 		if h.IsDir {
