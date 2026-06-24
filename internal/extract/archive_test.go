@@ -5,10 +5,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	rardecode "github.com/nwaples/rardecode/v2"
 )
 
 // TestExtractDeadlineStopsArchive verifies the extraction deadline is honored by
@@ -191,6 +195,40 @@ func TestExtractEncryptedMarkerEmittedOnce(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("ARCHIVE-ENCRYPTED emitted %d times, want exactly 1", n)
+	}
+}
+
+// A whole-archive header-encrypted 7z/RAR fails at the reader level (NewReader
+// for 7z, the first rr.Next() for RAR) before any per-member loop runs, so the
+// new unpack7z/unpackRar reader-error branches depend on isEncryptedErr
+// classifying those library errors as encryption. No 7z/rar writer exists in the
+// stdlib (and no CLI on the build host) to synthesize a binary fixture, so pin
+// the contract against the libraries' actual exported sentinel errors: the ones
+// rardecode/sevenzip return when a password is required must classify as
+// encrypted, and plain corruption must NOT.
+func TestIsEncryptedErr_HeaderEncryptedReaderErrors(t *testing.T) {
+	encrypted := []error{
+		rardecode.ErrArchiveEncrypted,      // "rardecode: archive encrypted, password required"
+		rardecode.ErrArchivedFileEncrypted, // "rardecode: archived files encrypted, password required"
+		// sevenzip's aes7z reader surfaces this when streamsInfo is header-encrypted.
+		errors.New("aes7z: no password set"),
+		fmt.Errorf("sevenzip: error setting password: %w", errors.New("aes7z: no password set")),
+	}
+	for _, e := range encrypted {
+		if !isEncryptedErr(e) {
+			t.Errorf("isEncryptedErr(%q) = false, want true (header-encrypted archive)", e)
+		}
+	}
+	notEncrypted := []error{
+		nil,
+		errors.New("unexpected EOF"),
+		errors.New("rardecode: corrupt block header"),
+		errors.New("sevenzip: invalid signature header"),
+	}
+	for _, e := range notEncrypted {
+		if isEncryptedErr(e) {
+			t.Errorf("isEncryptedErr(%v) = true, want false (generic corruption, not encryption)", e)
+		}
 	}
 }
 
