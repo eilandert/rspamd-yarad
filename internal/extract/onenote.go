@@ -75,7 +75,14 @@ func isOneNote(buf []byte) bool {
 // appends its embedded file bytes to res.Streams. Sets IsOneNote when buf was a
 // recognised OneNote file (whether or not any embedded file was found). Bounded
 // by the maxONE* caps; best-effort, a malformed object is skipped.
-func fromOneNote(buf []byte, res *Result, deadline time.Time) {
+//
+// Each carved embedded file is ALSO routed back through extractChild: a OneNote
+// attachment is itself a common carrier (a .zip / .pdf / OOXML / OLE2 / .lnk
+// payload behind the "Double click to view" overlay), and appending the raw
+// bytes alone only exposes them to keyword/PE rules — the nested container would
+// stay opaque. extractChild is depth/budget-bounded, so this fans out under the
+// same shared nested-carrier budget as archive members and RTF objects.
+func fromOneNote(buf []byte, res *Result, bud *archiveBudget, depth int, deadline time.Time) {
 	defer func() {
 		if recover() != nil {
 			res.Panicked = true
@@ -108,6 +115,13 @@ func fromOneNote(buf []byte, res *Result, deadline time.Time) {
 			b := append([]byte(nil), data[:n]...)
 			res.Streams = append(res.Streams, b)
 			total += len(b)
+			// Recurse the embedded file as a child carrier so a nested
+			// zip/pdf/OOXML/OLE2/lnk payload is unpacked, not just raw-scanned.
+			// nil bud (direct fromOneNote callers / tests) → skip recursion, the
+			// raw stream above still carries the keyword/PE signal.
+			if bud != nil {
+				extractChild(b, res, bud, depth+1, deadline)
+			}
 		}
 		// Advance past the data we just consumed so the next bytes.Index can't
 		// re-find a sentinel GUID *inside* the bytes already emitted (which would

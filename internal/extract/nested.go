@@ -75,7 +75,7 @@ func extractChild(data []byte, res *Result, b *archiveBudget, depth int, deadlin
 	case isLNK(data):
 		fromLNK(data, res)
 	case isOneNote(data):
-		fromOneNote(data, res, deadline)
+		fromOneNote(data, res, b, depth, deadline)
 	default:
 		// Not a recognised container — it may still be an MS Script Encoder block
 		// (#@~^…^#~@) carried as a child (.vbe/.jse inside an archive/.msg). Decode
