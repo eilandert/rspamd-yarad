@@ -138,3 +138,44 @@ func TestSplitPureMarkers_Empty(t *testing.T) {
 		t.Fatalf("empty input: content=%d markers=%d moved=%d", len(content), len(markers), n)
 	}
 }
+
+// TestJoinXLMStackerMarkers_Colocates pins the Phase-2c fix: the scattered XLM
+// markers (each emitted as its own Streams entry, scanned independently) are
+// collected into ONE XLM-STACK-prefixed buffer so the multi-marker stacker rules
+// (XLM_AutoOpen_Dropper etc.) can satisfy their conjunctions on the Markers
+// channel. Confirmed dead-without-fix empirically via blacktop/yara.
+func TestJoinXLMStackerMarkers_Colocates(t *testing.T) {
+	streams := [][]byte{
+		[]byte("real macro source"),
+		[]byte("XLM-AUTO-OPEN"),
+		[]byte("XLM-HIDDEN-MACROSHEET hidden Macro1"),
+		[]byte("XLM-DANGEROUS-FUNC EXEC"),
+		[]byte("XLM-EMUL-DEPTH branched"),
+	}
+	buf := joinXLMStackerMarkers(streams)
+	if buf == nil {
+		t.Fatal("expected combined buffer for >=2 stacker markers, got nil")
+	}
+	if !bytes.HasPrefix(buf, []byte(xlmStackerPrefix)) {
+		t.Fatalf("combined buffer missing XLM-STACK prefix: %q", buf)
+	}
+	if !isPureMarker(buf) {
+		t.Fatal("combined buffer not routed to Markers channel (isPureMarker=false)")
+	}
+	for _, want := range []string{"XLM-AUTO-OPEN", "XLM-HIDDEN-MACROSHEET hidden", "XLM-DANGEROUS-FUNC EXEC", "XLM-EMUL-DEPTH branched"} {
+		if !bytes.Contains(buf, []byte(want)) {
+			t.Fatalf("combined buffer missing co-located marker %q: %q", want, buf)
+		}
+	}
+}
+
+// TestJoinXLMStackerMarkers_SingleNil: a single stacker marker can never satisfy
+// a conjunction, so no buffer is built (nil).
+func TestJoinXLMStackerMarkers_SingleNil(t *testing.T) {
+	if buf := joinXLMStackerMarkers([][]byte{[]byte("XLM-AUTO-OPEN"), []byte("plain content")}); buf != nil {
+		t.Fatalf("single stacker marker: want nil, got %q", buf)
+	}
+	if buf := joinXLMStackerMarkers([][]byte{[]byte("no markers here")}); buf != nil {
+		t.Fatalf("no stacker markers: want nil, got %q", buf)
+	}
+}

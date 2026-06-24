@@ -47,6 +47,63 @@ var pureMarkerPrefixes = []string{
 	oleDocSecMarkerPrefix, // docprops.go ("OLE-DOC-SECURITY-")
 	docPropsMarker + "\n", // docprops.go combined buffer
 	userFormMarker + "\n", // userform.go combined buffer
+	xlmStackerPrefix,      // joinXLMStackerMarkers combined buffer
+}
+
+// xlmStackerPrefix tags the document-level combined XLM-marker buffer built by
+// joinXLMStackerMarkers. It is a yarad-synthetic literal, so the buffer routes
+// to the out-of-band Markers channel like the other PURE markers.
+const xlmStackerPrefix = "XLM-STACK\n"
+
+// xlmStackerMarkerPrefixes are the XLM marker entries the multi-marker stacker
+// rules (XLM_AutoOpen_Dropper, XLM_Hidden_Dangerous_Dropper,
+// XLM_Emulator_Deep_Exec) must see CO-LOCATED to fire. yarad emits each as a
+// separate Streams entry (each scanned independently), so the `(open|close) and
+// (hidden|danger)` style conjunctions were structurally dead — same cross-entry
+// root cause as the DocProps/UserForm case fixed in Phase 2b. joinXLMStackerMarkers
+// collects every present XLM marker into one document-level buffer so the
+// (: marker)-tagged stacker rules can satisfy their conjunction on the Markers
+// channel. The individual marker entries are LEFT in Streams untouched, so the
+// self-contained rules (XLM_Hidden_Macrosheet, XLM_Dangerous_Function) keep
+// firing there with no detection change.
+var xlmStackerMarkerPrefixes = []string{
+	"XLM-AUTO-OPEN",
+	"XLM-AUTO-CLOSE",
+	"XLM-HIDDEN-MACROSHEET ",
+	"XLM-DANGEROUS-FUNC ",
+	"XLM-EMUL-DEPTH ",
+}
+
+// joinXLMStackerMarkers scans streams for XLM marker entries and, when at least
+// two distinct stacker markers are present, returns ONE combined buffer
+// "XLM-STACK\n<marker>\n<marker>..." for the Markers channel. Returns nil when
+// fewer than two are found (a single marker can never satisfy a stacker rule's
+// conjunction, so no buffer is needed). The source entries are copied, not
+// moved — they stay in Streams for the self-contained marker rules.
+func joinXLMStackerMarkers(streams [][]byte) []byte {
+	var collected [][]byte
+	for _, s := range streams {
+		for _, p := range xlmStackerMarkerPrefixes {
+			if bytes.HasPrefix(s, []byte(p)) {
+				collected = append(collected, s)
+				break
+			}
+		}
+	}
+	if len(collected) < 2 {
+		return nil
+	}
+	n := len(xlmStackerPrefix)
+	for _, c := range collected {
+		n += len(c) + 1
+	}
+	b := make([]byte, 0, n)
+	b = append(b, xlmStackerPrefix...)
+	for _, c := range collected {
+		b = append(b, c...)
+		b = append(b, '\n')
+	}
+	return b
 }
 
 // joinMarkerPayload builds a single buffer "<marker>\n<carved...>" so a YARA

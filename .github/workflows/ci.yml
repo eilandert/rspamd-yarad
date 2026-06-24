@@ -282,10 +282,20 @@ jobs:
           match=$(printf '%s' "$v" | curl -s -H "X-YARAD-Token: ci" --data-binary @- http://127.0.0.1:18094/scan)
           echo "match: $match"; grep -q XLM_Dangerous_Function <<<"$match"
 
-          # Positive: hidden sheet + dangerous func must ALSO fire the dropper rule.
-          v=$(printf 'XLM-HIDDEN-MACROSHEET veryHidden\nXLM-DANGEROUS-FUNC CALL\n')
-          match=$(printf '%s' "$v" | curl -s -H "X-YARAD-Token: ci" --data-binary @- http://127.0.0.1:18094/scan)
-          echo "match: $match"; grep -q XLM_Hidden_Dangerous_Dropper <<<"$match"
+          # Phase 2c: the multi-marker stacker rules (XLM_Hidden_Dangerous_Dropper,
+          # XLM_AutoOpen_Dropper, XLM_Emulator_Deep_Exec) are now `: marker`-tagged.
+          # yarad emits each XLM marker as a SEPARATE stream entry, so the
+          # `(hidden) and (danger)` conjunction is structurally dead on raw/content
+          # — the fix co-locates the markers into one XLM-STACK buffer routed to the
+          # out-of-band Markers channel (joinXLMStackerMarkers), where the tagged
+          # rules fire. Confirmed dead-without-fix and revived-with-fix empirically
+          # via blacktop/yara; buffer construction + routing covered by the Go
+          # extract tests (TestJoinXLMStackerMarkers_*). A real OLE/BIFF XLM
+          # workbook is impractical to build here (same as UserForm).
+          # Adversarial: a RAW body planting both marker literals must NOT fire the
+          # now-tagged dropper (marker-tagged hits rejected on raw/content).
+          adv=$(printf 'XLM-HIDDEN-MACROSHEET veryHidden\nXLM-DANGEROUS-FUNC CALL\n' | curl -s -H "X-YARAD-Token: ci" --data-binary @- http://127.0.0.1:18094/scan)
+          echo "adv: $adv"; ! grep -q XLM_Hidden_Dangerous_Dropper <<<"$adv"
 
           # Negative: plain body with no marker must NOT fire.
           clean=$(printf 'just a plain document body\n' | curl -s -H "X-YARAD-Token: ci" --data-binary @- http://127.0.0.1:18094/scan)

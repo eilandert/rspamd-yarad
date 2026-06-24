@@ -37,7 +37,7 @@ rule XLM_Dangerous_Function : maldoc heuristic suspicious {
 // Auto_Close (0x02). Auto_Open alone is extremely common in legitimate macro workbooks
 // (templates, add-ins, productivity tools) — do NOT score it in isolation. Instead stack
 // it with a hidden-macrosheet or code-execution marker to target the dropper pattern.
-rule XLM_AutoOpen_Dropper : maldoc heuristic suspicious {
+rule XLM_AutoOpen_Dropper : maldoc heuristic suspicious marker {
     meta:
         description = "Excel-4.0 autorun (Auto_Open/Close NAME) combined with a hidden macrosheet or code-exec function"
         score = 80
@@ -53,7 +53,7 @@ rule XLM_AutoOpen_Dropper : maldoc heuristic suspicious {
 // A dangerous XLM function inside a HIDDEN/veryHidden macrosheet is the canonical
 // Excel-4.0 dropper (hide the sheet from the user, run code on open). Stack the
 // two markers for a higher score than either alone.
-rule XLM_Hidden_Dangerous_Dropper : maldoc heuristic suspicious {
+rule XLM_Hidden_Dangerous_Dropper : maldoc heuristic suspicious marker {
     meta:
         description = "Hidden Excel-4.0 macrosheet calling a code-execution/file-drop function (dropper)"
         score = 90
@@ -70,7 +70,7 @@ rule XLM_Hidden_Dangerous_Dropper : maldoc heuristic suspicious {
 // "branched" means at least one IF with unknown condition forked both paths.
 // CALL co-occurring with looped or branched is a strong evasion indicator
 // (attacker uses control-flow obfuscation to evade static analysis).
-rule XLM_Emulator_Deep_Exec : maldoc heuristic
+rule XLM_Emulator_Deep_Exec : maldoc heuristic marker
 {
     meta:
         author      = "yarad"

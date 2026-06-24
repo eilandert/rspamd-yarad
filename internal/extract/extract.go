@@ -37,7 +37,7 @@ import (
 // oleparse upgrade that changes output) invalidates cached verdicts the same
 // way a rule-set change does — important for the shared Redis L2 that survives
 // an image rebuild. Bump it whenever the bytes Extract emits could change.
-const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex+oleid+bounds+ole2link+pdfdeepen+msd+pdflex+nested+pdfendstr+pdffilter+defang+msdenc+msddeep+xlmbiff+xlsb+slk+xlminterp+oledir+oletimes+enctype+digsig+pdfendstr2+rtfquote+csvdde+effort4+xlmbinop+xlmdde+xlmname+dsf+defaultpw+defaultpwrc4+pptvba+xlmemul+xlmemulbiff+xlmemuldepth+oleid2+ddews+docsec+dcufpayload"
+const Version = "ole2+msi+vbe+msg+onenote+archive+olepkg+lnk+pdf+rtf+decode+tmplinj+dde+xlm+stomp+userform+docprops+strfold+rtftricks+xlmfold+strrev+environ+dridex+oleid+bounds+ole2link+pdfdeepen+msd+pdflex+nested+pdfendstr+pdffilter+defang+msdenc+msddeep+xlmbiff+xlsb+slk+xlminterp+oledir+oletimes+enctype+digsig+pdfendstr2+rtfquote+csvdde+effort4+xlmbinop+xlmdde+xlmname+dsf+defaultpw+defaultpwrc4+pptvba+xlmemul+xlmemulbiff+xlmemuldepth+oleid2+ddews+docsec+dcufpayload+xlmstack"
 
 // Options carries the per-request extraction caps (EFFORT-4) plus the time
 // budget. It is resolved once per scan from the effort level and threaded to the
@@ -408,6 +408,16 @@ func ExtractWithOptions(buf []byte, opts *Options) (res Result) {
 	// has*Marker / countXLMMarker helpers have run against Streams. decodeMoved
 	// keeps DecodedStreams exact: an MSD-DEEPDECODE marker counted into that total
 	// is no longer in Streams, so subtract it.
+	// Co-locate the scattered XLM markers into one document-level buffer so the
+	// multi-marker stacker rules can satisfy their conjunctions (markers are
+	// emitted as separate Streams entries, each scanned independently — the same
+	// cross-entry dead-rule class fixed for DocProps/UserForm in Phase 2b). The
+	// buffer is XLM-STACK-prefixed so splitPureMarkers routes it to the Markers
+	// channel; the individual entries stay in Streams for the self-contained rules.
+	if xb := joinXLMStackerMarkers(res.Streams); xb != nil {
+		res.Streams = append(res.Streams, xb)
+	}
+
 	content, markers, decodeMoved := splitPureMarkers(res.Streams)
 	res.Streams = content
 	res.Markers = markers
