@@ -56,6 +56,24 @@ func TestExtractOneNoteEmbedded(t *testing.T) {
 	}
 }
 
+// A .one section whose embedded FileDataStoreObject is itself a container (a
+// plain .zip carrying a dropper) must have the INNER payload unpacked, not just
+// the raw zip bytes surfaced — extractChild recursion (audit 2026-06-25). Before
+// the fix the inner .bat stayed opaque (only the zip bytes were raw-scanned).
+func TestExtractOneNoteEmbeddedZipRecursed(t *testing.T) {
+	innerZip := buildZip(t, map[string][]byte{
+		"run.bat": []byte("@echo off & powershell -enc ONENOTE_NESTED_DROPPER_MARKER"),
+	})
+	buf := buildOneNote(buildFDSO(innerZip, 0))
+	res := Extract(buf, time.Time{})
+	if !res.IsOneNote {
+		t.Fatal(".one not flagged IsOneNote")
+	}
+	if !streamsContain(res, "ONENOTE_NESTED_DROPPER_MARKER") {
+		t.Errorf("inner .bat inside the embedded zip was not unpacked via extractChild; got %d streams", len(res.Streams))
+	}
+}
+
 // Two embedded files in one section must both be carved.
 func TestExtractOneNoteMultiple(t *testing.T) {
 	var body bytes.Buffer
@@ -167,7 +185,7 @@ func TestFromOneNotePanicRecovery(t *testing.T) {
 	hostile = append(hostile, []byte{0xDE, 0xAD, 0xBE, 0xEF}...)
 	res := &Result{}
 	// Must not panic.
-	fromOneNote(hostile, res, time.Time{})
+	fromOneNote(hostile, res, &archiveBudget{}, 0, time.Time{})
 	if !res.IsOneNote {
 		t.Error("IsOneNote should be set regardless of parse failure")
 	}
