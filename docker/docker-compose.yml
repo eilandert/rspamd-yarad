@@ -40,12 +40,13 @@ services:
 
       # --- Threat-intel feeds (abuse.ch, opt-in) ----------------------------
       # One free abuse.ch Auth-Key (https://auth.abuse.ch/) enables BOTH feeds.
-      # Each falls back to disabled when its key is unset. Prefer the _FILE form.
+      # Register at https://auth.abuse.ch/ — the same key works for URLhaus AND
+      # MalwareBazaar. Prefer the _FILE form (Docker secret, never an env value).
       # URLhaus — known malware-distribution URLs in the message/macros:
-      # YARAD_URLHAUS_KEY_FILE: /run/secrets/abuse_ch_key
+      YARAD_URLHAUS_KEY_FILE: /run/secrets/abuse_ch_key
       # MalwareBazaar — exact SHA256 of each attachment vs known malware samples.
       # Full dump (~1M hashes) refreshed daily; see the mem_limit note above.
-      # YARAD_MBAZAAR_KEY_FILE: /run/secrets/abuse_ch_key
+      YARAD_MBAZAAR_KEY_FILE: /run/secrets/abuse_ch_key
       # YARAD_MBAZAAR_REFRESH: "86400" # seconds; floor 300
       # YARAD_MBAZAAR_FEED: "..."      # override feed URL (default: full dump)
 
@@ -56,6 +57,7 @@ services:
 
     secrets:
       - yarad_token
+      - abuse_ch_key
 
     # Rules are baked into the image (public curated bundle); no volume.
 
@@ -83,3 +85,5 @@ networks:
 secrets:
   yarad_token:
     file: ./secrets/yarad_token.txt    # one line: the shared secret
+  abuse_ch_key:
+    file: ./secrets/abuse_ch_key.txt   # one line: abuse.ch Auth-Key (URLhaus + MalwareBazaar)

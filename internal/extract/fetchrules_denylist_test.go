@@ -9,19 +9,30 @@ import (
 	"testing"
 )
 
-// PERF-12 (2026-06-25): fetch-rules.sh drops three public yaraify rules that a
-// libyara profiling run found to account for 99.3% of all scan cost — each an
-// unanchored short-atom regex on a PE/ELF binary rule whose slow string phase
-// runs on every text buffer and that matches nothing on the mail corpus. These
-// tests pin the denylist so the win can't silently regress (a refactor of
-// fetch-rules.sh, or the names drifting out of the list).
+// fetch-rules.sh prunes two classes of rules from the fetched bundle at build
+// time so they are never compiled or run:
+//
+//   PERF-12 (2026-06-25): three yaraify rules that a libyara profiling run
+//   found to account for 99.3% of all scan cost — unanchored short-atom
+//   regexes on PE/ELF binary rules whose slow string phase runs on every text
+//   buffer and matches nothing on the mail corpus.
+//
+//   FP/noise (2026-06-25): three rules confirmed in the compiled bundle that
+//   fire on benign mail with no signal for the mail-attachment vector.
+//
+// These tests pin the denylist so the wins can't silently regress.
 
-// perf12DeniedRules are the rule names fetch-rules.sh must prune. Keep in sync
+// deniedRules are the rule names fetch-rules.sh must prune. Keep in sync
 // with SLOW_RULE_DENYLIST in docker/fetch-rules.sh.
-var perf12DeniedRules = []string{
+var deniedRules = []string{
+	// PERF-12: catastrophic-regex rules (99.3% of scan cost on the mail corpus)
 	"Luckyware_Infection_Detection",
 	"kryptina_encryptor",
 	"DLL_DiceLoader_Fin7_Feb2024",
+	// FP/noise: benign-mail false positives, no signal for mail-attachment vector
+	"Cloaked_RAR_File",
+	"SUSP_Encoded_Discord_Attachment_Oct21_1",
+	"SIGNATURE_BASE_SUSP_Encoded_Discord_Attachment_Oct21_1",
 }
 
 func fetchRulesScript(t *testing.T) string {
@@ -53,7 +64,7 @@ func TestFetchRules_DenylistPresent(t *testing.T) {
 		t.Fatal("SLOW_RULE_DENYLIST= not found in fetch-rules.sh (PERF-12 denylist removed?)")
 	}
 	list := string(m[1])
-	for _, name := range perf12DeniedRules {
+	for _, name := range deniedRules {
 		if !regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(name) + `(\s|$)`).MatchString(list) {
 			t.Errorf("PERF-12: %q missing from SLOW_RULE_DENYLIST (%q)", name, list)
 		}
@@ -75,7 +86,7 @@ func TestFetchRules_DenylistPrunes(t *testing.T) {
 	}
 	dir := t.TempDir()
 	// one single-rule file per denied rule (mirrors yaraify's one-rule-per-file)
-	for _, name := range perf12DeniedRules {
+	for _, name := range deniedRules {
 		f := filepath.Join(dir, "yaraify-"+name+".yar")
 		if err := os.WriteFile(f, []byte("rule "+name+" {\n condition:\n  true\n}\n"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", f, err)
@@ -101,7 +112,7 @@ func TestFetchRules_DenylistPrunes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("denylist block failed: %v\n%s", err, out)
 	}
-	for _, name := range perf12DeniedRules {
+	for _, name := range deniedRules {
 		f := filepath.Join(dir, "yaraify-"+name+".yar")
 		if _, err := os.Stat(f); !os.IsNotExist(err) {
 			t.Errorf("PERF-12: %q file survived the denylist prune", name)
