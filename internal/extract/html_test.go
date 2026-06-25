@@ -111,6 +111,66 @@ func TestSVGScriptMarker(t *testing.T) {
 	}
 }
 
+// TestSVGEmbeddedPayloadCarve: an <svg> with an <image href> base64 data: URI
+// whose decoded bytes are a container magic (PK zip) must emit
+// SVG-EMBEDDED-PAYLOAD and carve the dropper — no download attribute required.
+func TestSVGEmbeddedPayloadCarve(t *testing.T) {
+	payload := append([]byte("PK\x03\x04"), bytes.Repeat([]byte{0x43}, 64)...)
+	b64 := base64.StdEncoding.EncodeToString(payload)
+	in := `<svg xmlns="http://www.w3.org/2000/svg">` +
+		`<image href="data:application/octet-stream;base64,` + b64 + `"/></svg>`
+	res := runHTML([]byte(in))
+	if !streamHas(res, "SVG-EMBEDDED-PAYLOAD") {
+		t.Fatalf("expected SVG-EMBEDDED-PAYLOAD marker; streams=%d", len(res.Streams))
+	}
+	found := false
+	for _, s := range res.Streams {
+		if bytes.HasPrefix(s, []byte("PK\x03\x04")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("decoded SVG-embedded payload was not carved into Streams")
+	}
+}
+
+// TestSVGEmbeddedPayloadXlinkHref: the legacy xlink:href spelling carries the
+// same data: URI and must be carved identically.
+func TestSVGEmbeddedPayloadXlinkHref(t *testing.T) {
+	payload := append([]byte("%PDF-1.7"), bytes.Repeat([]byte{0x44}, 64)...)
+	b64 := base64.StdEncoding.EncodeToString(payload)
+	in := `<svg><image xlink:href="data:image/png;base64,` + b64 + `"/></svg>`
+	if !streamHas(runHTML([]byte(in)), "SVG-EMBEDDED-PAYLOAD") {
+		t.Error("expected SVG-EMBEDDED-PAYLOAD for xlink:href container payload")
+	}
+}
+
+// TestSVGEmbeddedPayloadNoFalsePositive: an <svg> inlining real raster art (PNG,
+// not a container magic) must NOT fire — legitimate SVG inlines images.
+func TestSVGEmbeddedPayloadNoFalsePositive(t *testing.T) {
+	// A real-ish PNG header — NOT a container magic (PK/OLE2/MZ/%PDF).
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0x10}, 64)...)
+	b64 := base64.StdEncoding.EncodeToString(png)
+	in := `<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,` + b64 + `"/></svg>`
+	res := runHTML([]byte(in))
+	if streamHas(res, "SVG-EMBEDDED-PAYLOAD") {
+		t.Error("benign inline PNG in SVG wrongly emitted SVG-EMBEDDED-PAYLOAD")
+	}
+}
+
+// TestSVGEmbeddedPayloadNotFromPlainHTML: a container data: URI in plain HTML
+// (no <svg> root) must not be attributed to the SVG path.
+func TestSVGEmbeddedPayloadNotFromPlainHTML(t *testing.T) {
+	payload := append([]byte("PK\x03\x04"), bytes.Repeat([]byte{0x45}, 64)...)
+	b64 := base64.StdEncoding.EncodeToString(payload)
+	// No <svg>, no download attr → neither SVG nor DATAURI path should carve.
+	in := `<img src="data:application/octet-stream;base64,` + b64 + `">`
+	res := runHTML([]byte(in))
+	if streamHas(res, "SVG-EMBEDDED-PAYLOAD") {
+		t.Error("non-SVG container data: URI wrongly emitted SVG-EMBEDDED-PAYLOAD")
+	}
+}
+
 func TestHTMLSmugglingGateAndFailOpen(t *testing.T) {
 	// Non-markup / binary garbage must short-circuit and emit nothing (no panic).
 	res := runHTML([]byte{0x00, 0x01, 0x02, 0xff, 0xfe})

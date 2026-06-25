@@ -80,6 +80,7 @@ var parityMarkers = map[string]markerKind{
 	"HTML-SMUGGLING-BLOB":    contractMarker, // html_smuggling.yara HTML_Smuggling_Blob
 	"HTML-SMUGGLING-DATAURI": contractMarker, // html_smuggling.yara HTML_Smuggling_DataURI
 	"SVG-SCRIPT":             contractMarker, // html_smuggling.yara SVG_Scripted
+	"SVG-EMBEDDED-PAYLOAD":   contractMarker, // html_smuggling.yara SVG_Embedded_Payload
 	"ARCHIVE-ENCRYPTED":      contractMarker, // archive_indicators.yara Archive_Encrypted
 	"POLYGLOT-PE-ZIP":        contractMarker, // archive_indicators.yara Polyglot_PE_ZIP
 	"XLL-ADDIN":              contractMarker, // archive_indicators.yara XLL_AddIn

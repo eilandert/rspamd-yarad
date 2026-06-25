@@ -37,6 +37,13 @@ package extract
 //       redirect / smuggling / phishing vector. Scored low (legitimate
 //       interactive SVG exists), marker-only, no carve.
 //
+//  4. SVG-EMBEDDED-PAYLOAD — an <svg> carrying a base64 data: URI (typically an
+//       <image href>) whose decoded bytes are a CONTAINER magic (PK/OLE2/MZ/
+//       %PDF). Legitimate SVG inlines raster art (PNG/JPEG/GIF) — never a zip,
+//       OLE2 doc, PE or PDF — so the container magic is the dropper tell.
+//       Decoded blob is routed through extractChild for full scanning. No
+//       download attribute required (the SVG renders client-side).
+//
 // Fail-open + bounded: the scan is capped to a leading window, data-URI carves
 // and decoded output are capped and count-limited, and at most a few markers are
 // emitted. Malformed input yields nothing (Extract's recover covers a panic).
@@ -137,12 +144,39 @@ func fromHTMLSmuggling(buf []byte, res *Result, b *archiveBudget, depth int, dea
 
 	// Signal 3: scripted SVG. Only when an <svg> root is present AND it carries
 	// an execution vector (script/onload/foreignObject).
-	if bytes.Contains(lower, []byte("<svg")) {
+	isSVG := bytes.Contains(lower, []byte("<svg"))
+	if isSVG {
 		if bytes.Contains(lower, []byte("<script")) ||
 			bytes.Contains(lower, []byte("onload=")) ||
 			bytes.Contains(lower, []byte("<foreignobject")) {
 			if len(res.Streams) < maxStreams {
 				res.Streams = append(res.Streams, []byte("SVG-SCRIPT"))
+			}
+		}
+		// SVG-deepen: carve base64 payloads embedded in <image href|xlink:href=
+		// "data:...;base64,..."> blobs. An SVG legitimately inlines raster art
+		// (PNG/JPEG/GIF), so we only flag a blob that decodes to a CONTAINER magic
+		// (PK/OLE2/MZ/%PDF) — a dropper hidden in the image href, never benign
+		// SVG art. Unlike signal 2 this does NOT require a download attribute,
+		// because the SVG renders client-side and the container payload is the
+		// tell on its own. Bounded + fail-open.
+		svgCarved := 0
+		for _, m := range reDataURIBase64.FindAllSubmatch(head, htmlMaxDataURIs*2) {
+			if svgCarved >= htmlMaxDataURIs || len(res.Streams) >= maxStreams || expired(deadline) {
+				break
+			}
+			dec := decodeDataURIB64(m[1])
+			// FP gate: only carve when the decoded blob is a real dropper container.
+			if dec == nil || !hasContainerMagic(dec) {
+				continue
+			}
+			if svgCarved == 0 && len(res.Streams) < maxStreams {
+				res.Streams = append(res.Streams, []byte("SVG-EMBEDDED-PAYLOAD"))
+			}
+			svgCarved++
+			extractChild(dec, res, b, depth+1, deadline)
+			if len(res.Streams) < maxStreams {
+				res.Streams = append(res.Streams, dec)
 			}
 		}
 	}
@@ -157,21 +191,9 @@ func fromHTMLSmuggling(buf []byte, res *Result, b *archiveBudget, depth int, dea
 		if carved >= htmlMaxDataURIs || len(res.Streams) >= maxStreams || expired(deadline) {
 			break
 		}
-		b64 := bytes.ReplaceAll(m[1], []byte{'\n'}, nil)
-		b64 = bytes.ReplaceAll(b64, []byte{'\r'}, nil)
-		b64 = bytes.ReplaceAll(b64, []byte{' '}, nil)
-		b64 = bytes.ReplaceAll(b64, []byte{'\t'}, nil)
-		if len(b64) < 16 || len(b64) > htmlMaxDataURIB64 {
+		dec := decodeDataURIB64(m[1])
+		if dec == nil {
 			continue
-		}
-		dec := make([]byte, base64.StdEncoding.DecodedLen(len(b64)))
-		n, err := base64.StdEncoding.Decode(dec, b64)
-		if err != nil || n == 0 {
-			continue
-		}
-		dec = dec[:n]
-		if len(dec) > htmlMaxDecoded {
-			dec = dec[:htmlMaxDecoded]
 		}
 		// A force-downloaded base64 data: URI is a smuggled file regardless of
 		// content; emit the marker once we have a real decoded payload.
@@ -189,4 +211,28 @@ func fromHTMLSmuggling(buf []byte, res *Result, b *archiveBudget, depth int, dea
 			res.Streams = append(res.Streams, dec)
 		}
 	}
+}
+
+// decodeDataURIB64 strips whitespace from a captured base64 data: URI body and
+// decodes it, returning the decoded bytes (capped to htmlMaxDecoded) or nil when
+// the source is out of bounds or not valid base64. Fail-open: callers treat nil
+// as "skip this URI".
+func decodeDataURIB64(raw []byte) []byte {
+	b64 := bytes.ReplaceAll(raw, []byte{'\n'}, nil)
+	b64 = bytes.ReplaceAll(b64, []byte{'\r'}, nil)
+	b64 = bytes.ReplaceAll(b64, []byte{' '}, nil)
+	b64 = bytes.ReplaceAll(b64, []byte{'\t'}, nil)
+	if len(b64) < 16 || len(b64) > htmlMaxDataURIB64 {
+		return nil
+	}
+	dec := make([]byte, base64.StdEncoding.DecodedLen(len(b64)))
+	n, err := base64.StdEncoding.Decode(dec, b64)
+	if err != nil || n == 0 {
+		return nil
+	}
+	dec = dec[:n]
+	if len(dec) > htmlMaxDecoded {
+		dec = dec[:htmlMaxDecoded]
+	}
+	return dec
 }
