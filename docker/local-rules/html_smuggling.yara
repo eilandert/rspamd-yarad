@@ -49,3 +49,19 @@ rule SVG_Scripted : svg smuggling heuristic suspicious marker
     condition:
         filesize < 16MB and $marker
 }
+
+rule SVG_Embedded_Payload : svg smuggling heuristic suspicious marker
+{
+    meta:
+        author      = "yarad"
+        description = "SVG <image href> base64 data: URI decodes to a container magic (PK/OLE2/MZ/%PDF) — smuggled dropper, not raster art"
+        reference   = "https://attack.mitre.org/techniques/T1027/006/"
+        tier        = "suspicious"
+        score       = "70"
+    strings:
+        // PURE yarad-synthetic literal: only emitted when the decoded data: URI
+        // carried a real container magic, so matching it is zero-FP by construction.
+        $marker = "SVG-EMBEDDED-PAYLOAD" ascii
+    condition:
+        filesize < 16MB and $marker
+}

@@ -35,6 +35,7 @@ var pureMarkerLiterals = map[string]struct{}{
 	"HTML-SMUGGLING-BLOB":    {}, // html.go
 	"HTML-SMUGGLING-DATAURI": {}, // html.go
 	"SVG-SCRIPT":             {}, // html.go
+	"SVG-EMBEDDED-PAYLOAD":   {}, // html.go
 	"ARCHIVE-ENCRYPTED":      {}, // archive.go
 	"POLYGLOT-PE-ZIP":        {}, // polyglot.go
 	"XLL-ADDIN":              {}, // xll.go
