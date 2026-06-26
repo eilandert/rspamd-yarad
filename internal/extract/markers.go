@@ -53,6 +53,7 @@ const msdDeepDecodePrefix = "MSD-DEEPDECODE depth="
 var pureMarkerPrefixes = []string{
 	msdDeepDecodePrefix,   // decode.go
 	oleDocSecMarkerPrefix, // docprops.go ("OLE-DOC-SECURITY-")
+	oleMetaTag + "\n",     // docprops.go OLE-META combined buffer
 	docPropsMarker + "\n", // docprops.go combined buffer
 	userFormMarker + "\n", // userform.go combined buffer
 	xlmStackerPrefix,      // joinXLMStackerMarkers combined buffer

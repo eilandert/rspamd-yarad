@@ -48,56 +48,61 @@ const (
 // emits. Adding an emit site without adding a row here fails TestParityMarkerInventory.
 var parityMarkers = map[string]markerKind{
 	// --- structural / intent indicators (must have a scoring rule) ---
-	"CSV-DDE":                contractMarker, // ooxml_dde.yara CSV_DDE_Command
-	"SLK-DDE":                contractMarker, // ooxml_dde.yara SLK_DDE_Command
-	"OOXML-DDE-FIELD":        contractMarker, // ooxml_dde.yara Maldoc_DDE_Field
-	"OOXML-EXTERNAL-REL":     contractMarker, // ooxml_template_injection.yara
-	"OOXML-MHTML-REL":        contractMarker, // ooxml_template_injection.yara OOXML_MHTML_Scheme
-	"RTF-DDE-FIELD":          contractMarker, // rtf_tricks.yara RTF_DDE_Field
-	"RTF-OBJUPDATE":          contractMarker, // rtf_tricks.yara RTF_ObjUpdate
-	"XLM-DANGEROUS-FUNC":     contractMarker, // xlm_macrosheet.yara XLM_Dangerous_Function
-	"XLM-HIDDEN-MACROSHEET":  contractMarker, // xlm_macrosheet.yara
-	"XLM-AUTO-OPEN":          contractMarker, // xlm_macrosheet.yara XLM_AutoOpen_Dropper
-	"XLM-AUTO-CLOSE":         contractMarker, // xlm_macrosheet.yara XLM_AutoOpen_Dropper
-	"OLEID-OBJECTPOOL":       contractMarker, // oleid_indicators.yara OLEID_ObjectPool
-	"OLEID-FLASH":            contractMarker, // oleid_indicators.yara OLEID_Flash
-	"OLEID-VBA-PRESENT":      contractMarker, // oleid_indicators.yara OLEID_OOXML_VBA_Present
-	"OLEID-EXTREL":           contractMarker, // oleid_indicators.yara OLEID_OOXML_ExternalRel
-	"OLEID-DDE":              contractMarker, // oleid_indicators.yara OLEID_OOXML_DDE
-	"OLEID-XLM-PRESENT":      contractMarker, // oleid_indicators.yara OLEID_OOXML_XLM_Present
-	"OLE2LINK-URL":           contractMarker, // oleid_indicators.yara OLE2Link_URL_Moniker
-	"OLETIMES-FUTURE":        contractMarker, // oleid_indicators.yara OLETimes_FutureStamp
-	"OLETIMES-SYNTHETIC":     contractMarker, // oleid_indicators.yara OLETimes_SyntheticStamps
-	"DEFAULTPW-DECRYPTED":    contractMarker, // oleid_indicators.yara DefaultPW_Decrypted
-	"ENCRYPTION-XOR":         contractMarker, // oleid_indicators.yara Encrypted_XOR_Obfuscation
-	"ENCRYPTION-RC4":         contractMarker, // oleid_indicators.yara Encrypted_Document
-	"ENCRYPTION-AES":         contractMarker, // oleid_indicators.yara Encrypted_Document
-	"DIGITAL-SIGNATURE":      contractMarker, // oleid_indicators.yara Document_DigitalSignature
-	"PPT-VBA-EXTRACTED":      contractMarker, // oleid_indicators.yara PPT_VBA_Macro
-	"VBA-ENVIRON":            contractMarker, // intent.yara VBA_Environ_Probe
-	"VBA-STOMPED":            contractMarker, // vba_stomping.yara
-	"MSD-DEEPDECODE":         contractMarker, // intent.yara Multilayer_Encoded_Payload
-	"HTML-SMUGGLING-BLOB":    contractMarker, // html_smuggling.yara HTML_Smuggling_Blob
-	"HTML-SMUGGLING-DATAURI": contractMarker, // html_smuggling.yara HTML_Smuggling_DataURI
-	"SVG-SCRIPT":             contractMarker, // html_smuggling.yara SVG_Scripted
-	"SVG-EMBEDDED-PAYLOAD":   contractMarker, // html_smuggling.yara SVG_Embedded_Payload
-	"ARCHIVE-ENCRYPTED":      contractMarker, // archive_indicators.yara Archive_Encrypted
-	"POLYGLOT-PE-ZIP":        contractMarker, // archive_indicators.yara Polyglot_PE_ZIP
-	"XLL-ADDIN":              contractMarker, // archive_indicators.yara XLL_AddIn
-	"BASE64-PE-CARVE":        contractMarker, // archive_indicators.yara Base64_Stuffed_PE
-	"PDF-OPENACTION-JS":      contractMarker, // pdf_indicators.yara PDF_OpenAction_JS
-	"PDF-AA-ACTION":          contractMarker, // pdf_indicators.yara PDF_Additional_Actions
-	"PDF-LAUNCH":             contractMarker, // pdf_indicators.yara PDF_Launch_Action
-	"PDF-EMBEDDEDFILE":       contractMarker, // pdf_indicators.yara PDF_EmbeddedFile
-	"PDF-JBIG2":              contractMarker, // pdf_indicators.yara PDF_JBIG2
-	"PDF-OBJSTM":             contractMarker, // pdf_indicators.yara PDF_ObjStm
-	"PDF-HEXOBFUSC":          contractMarker, // pdf_indicators.yara PDF_HexObfuscatedName
+	"CSV-DDE":                     contractMarker, // ooxml_dde.yara CSV_DDE_Command
+	"SLK-DDE":                     contractMarker, // ooxml_dde.yara SLK_DDE_Command
+	"OOXML-DDE-FIELD":             contractMarker, // ooxml_dde.yara Maldoc_DDE_Field
+	"OOXML-EXTERNAL-REL":          contractMarker, // ooxml_template_injection.yara
+	"OOXML-MHTML-REL":             contractMarker, // ooxml_template_injection.yara OOXML_MHTML_Scheme
+	"RTF-DDE-FIELD":               contractMarker, // rtf_tricks.yara RTF_DDE_Field
+	"RTF-OBJUPDATE":               contractMarker, // rtf_tricks.yara RTF_ObjUpdate
+	"XLM-DANGEROUS-FUNC":          contractMarker, // xlm_macrosheet.yara XLM_Dangerous_Function
+	"XLM-HIDDEN-MACROSHEET":       contractMarker, // xlm_macrosheet.yara
+	"XLM-AUTO-OPEN":               contractMarker, // xlm_macrosheet.yara XLM_AutoOpen_Dropper
+	"XLM-AUTO-CLOSE":              contractMarker, // xlm_macrosheet.yara XLM_AutoOpen_Dropper
+	"OLEID-OBJECTPOOL":            contractMarker, // oleid_indicators.yara OLEID_ObjectPool
+	"OLEID-FLASH":                 contractMarker, // oleid_indicators.yara OLEID_Flash
+	"OLEID-VBA-PRESENT":           contractMarker, // oleid_indicators.yara OLEID_OOXML_VBA_Present
+	"OLEID-EXTREL":                contractMarker, // oleid_indicators.yara OLEID_OOXML_ExternalRel
+	"OLEID-DDE":                   contractMarker, // oleid_indicators.yara OLEID_OOXML_DDE
+	"OLEID-XLM-PRESENT":           contractMarker, // oleid_indicators.yara OLEID_OOXML_XLM_Present
+	"OLE2LINK-URL":                contractMarker, // oleid_indicators.yara OLE2Link_URL_Moniker
+	"OLETIMES-FUTURE":             contractMarker, // oleid_indicators.yara OLETimes_FutureStamp
+	"OLETIMES-SYNTHETIC":          contractMarker, // oleid_indicators.yara OLETimes_SyntheticStamps
+	"DEFAULTPW-DECRYPTED":         contractMarker, // oleid_indicators.yara DefaultPW_Decrypted
+	"ENCRYPTION-XOR":              contractMarker, // oleid_indicators.yara Encrypted_XOR_Obfuscation
+	"ENCRYPTION-RC4":              contractMarker, // oleid_indicators.yara Encrypted_Document
+	"ENCRYPTION-AES":              contractMarker, // oleid_indicators.yara Encrypted_Document
+	"DIGITAL-SIGNATURE":           contractMarker, // oleid_indicators.yara Document_DigitalSignature
+	"PPT-VBA-EXTRACTED":           contractMarker, // oleid_indicators.yara PPT_VBA_Macro
+	"VBA-ENVIRON":                 contractMarker, // intent.yara VBA_Environ_Probe
+	"VBA-STOMPED":                 contractMarker, // vba_stomping.yara
+	"MSD-DEEPDECODE":              contractMarker, // intent.yara Multilayer_Encoded_Payload
+	"HTML-SMUGGLING-BLOB":         contractMarker, // html_smuggling.yara HTML_Smuggling_Blob
+	"HTML-SMUGGLING-DATAURI":      contractMarker, // html_smuggling.yara HTML_Smuggling_DataURI
+	"SVG-SCRIPT":                  contractMarker, // html_smuggling.yara SVG_Scripted
+	"SVG-EMBEDDED-PAYLOAD":        contractMarker, // html_smuggling.yara SVG_Embedded_Payload
+	"ARCHIVE-ENCRYPTED":           contractMarker, // archive_indicators.yara Archive_Encrypted
+	"POLYGLOT-PE-ZIP":             contractMarker, // archive_indicators.yara Polyglot_PE_ZIP
+	"XLL-ADDIN":                   contractMarker, // archive_indicators.yara XLL_AddIn
+	"BASE64-PE-CARVE":             contractMarker, // archive_indicators.yara Base64_Stuffed_PE
+	"OLE-META-TEMPLATE-INJECTION": contractMarker, // ole_meta.yara OLE_Meta_Template_Injection
+	"OLE-META-APPNAME-EQUATION":   contractMarker, // ole_meta.yara OLE_Meta_AppName_Equation
+	"OLE-META-REVISION-ZERO":      contractMarker, // ole_meta.yara OLE_Meta_FreshDoc_Stomp
+	"OLE-META-EDITTIME-ZERO":      contractMarker, // ole_meta.yara OLE_Meta_FreshDoc_Stomp
+	"PDF-OPENACTION-JS":           contractMarker, // pdf_indicators.yara PDF_OpenAction_JS
+	"PDF-AA-ACTION":               contractMarker, // pdf_indicators.yara PDF_Additional_Actions
+	"PDF-LAUNCH":                  contractMarker, // pdf_indicators.yara PDF_Launch_Action
+	"PDF-EMBEDDEDFILE":            contractMarker, // pdf_indicators.yara PDF_EmbeddedFile
+	"PDF-JBIG2":                   contractMarker, // pdf_indicators.yara PDF_JBIG2
+	"PDF-OBJSTM":                  contractMarker, // pdf_indicators.yara PDF_ObjStm
+	"PDF-HEXOBFUSC":               contractMarker, // pdf_indicators.yara PDF_HexObfuscatedName
 
 	// D8: emulation-depth class marker for YARA depth-correlated rules.
 	"XLM-EMUL-DEPTH": contractMarker, // xlm_macrosheet.yara XLM_Emulator_Deep_Exec
 
 	// --- carved-payload labels (scanned by existing keyword/IOC rules; no own rule) ---
 	"DOCPROPS-STRINGS": internalMarker,
+	"OLE-META":         internalMarker, // combined OLE-META wrapper tag; sub-markers carry the scoring rules
 	"USERFORM-STRINGS": internalMarker,
 	"OLE2-EXTRA-DATA":  internalMarker, // label on data appended past FAT coverage; carved tail scanned by content rules
 }
