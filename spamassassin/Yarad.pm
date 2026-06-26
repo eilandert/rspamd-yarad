@@ -175,14 +175,20 @@ sub parsed_metadata {
     # skipped (continue), not fatal. $ok aggregates to defined if ANY buffer
     # completed a scan; it stays undef only when every buffer errored (or all
     # were skipped for size) so fail-open is honoured exactly as in single-scan.
+    # $err tracks whether any scanned (non-size-skipped) buffer errored (returned undef).
     my $ok;
+    my $err = 0;
     for my $buf (@bufs) {
         if ($max > 0 && length($buf) > $max) {
             dbg("yarad: buffer %d bytes > yarad_max_size %d, skipping", length($buf), $max);
             next;
         }
         my $r = $self->$helper($pms, $conf, \$buf);
-        $ok = $r if defined $r;   # any completed scan makes the aggregate defined
+        if (defined $r) {
+            $ok = $r;   # a completed scan makes the aggregate defined
+        } else {
+            $err = 1;   # a scanned buffer errored
+        }
     }
 
     # $ok is undef on a backend error (no buffer completed). Honour fail-open.
@@ -192,6 +198,14 @@ sub parsed_metadata {
         } else {
             $pms->{yarad_error} = 1;
         }
+        return;
+    }
+
+    # In part mode with strict errors (fail_open 0), any errored buffer must fire
+    # YARAD_ERROR even if another buffer completed. Size-skipped buffers do not count.
+    if ($err && !$conf->{yarad_fail_open}) {
+        dbg("yarad: part error under strict mode, firing YARAD_ERROR");
+        $pms->{yarad_error} = 1;
         return;
     }
 
