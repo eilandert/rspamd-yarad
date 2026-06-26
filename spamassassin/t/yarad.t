@@ -212,4 +212,84 @@ sub fake_scan {
     is($self->_token({ yarad_token_file => '' }), undef, '_token undef when unset');
 }
 
+# ---- part mode strict errors: any errored part must fire YARAD_ERROR ----
+# Drives the REAL parsed_metadata (not a re-implemented loop) in part mode. We
+# override _message_part_buffers to yield two part buffers (no SA Message needed)
+# and mock HTTP::Tiny::post so the FIRST part errors and the SECOND completes
+# clean. Under fail_open=0, parsed_metadata must set yarad_error even though the
+# second part scanned OK (the bug masked the error via the defined aggregate).
+# test_part_mode_strict_error_any_part
+{
+    require HTTP::Tiny;
+    no warnings 'redefine';
+
+    # Two leaf part buffers, regardless of message structure.
+    local *Mail::SpamAssassin::Plugin::Yarad::_message_part_buffers = sub {
+        return ('part1', 'part2');
+    };
+
+    # First call errors (transport failure -> _scan_http returns undef),
+    # second call is a clean completed scan.
+    my $call_count = 0;
+    local *HTTP::Tiny::post = sub {
+        $call_count++;
+        return $call_count == 1
+            ? { success => 0, status => 599, reason => 'Connection refused', content => '' }
+            : { success => 1, status => 200, content => '{"matches":[]}' };
+    };
+
+    # parsed_metadata reads $pms->{conf}; $pms->{msg} is unused because
+    # _message_part_buffers is overridden, but give it a harmless stub.
+    my $conf = {
+        yarad_url        => 'http://x:8079',
+        yarad_timeout    => 5,
+        yarad_mode       => 'http',
+        yarad_max_size   => 0,
+        yarad_part_mode  => 1,
+        yarad_fail_open  => 0,      # strict
+        yarad_high_score => 75,
+    };
+    my $pms = fresh_pms();
+    $pms->{conf} = $conf;
+    $pms->{msg}  = bless {}, 'main::FakeMsg';   # never dereferenced (override)
+
+    $self->parsed_metadata({ permsgstatus => $pms });
+    is($call_count, 2, 'part mode strict: parsed_metadata scanned both parts');
+    is($pms->{yarad_error}, 1,
+        'part mode strict: parsed_metadata fires yarad_error when ANY part errored');
+}
+
+# ---- companion: same setup but fail_open=1 -> yarad_error must stay 0 ----
+{
+    require HTTP::Tiny;
+    no warnings 'redefine';
+
+    local *Mail::SpamAssassin::Plugin::Yarad::_message_part_buffers = sub {
+        return ('part1', 'part2');
+    };
+    my $call_count = 0;
+    local *HTTP::Tiny::post = sub {
+        $call_count++;
+        return $call_count == 1
+            ? { success => 0, status => 599, reason => 'Connection refused', content => '' }
+            : { success => 1, status => 200, content => '{"matches":[]}' };
+    };
+    my $conf = {
+        yarad_url        => 'http://x:8079',
+        yarad_timeout    => 5,
+        yarad_mode       => 'http',
+        yarad_max_size   => 0,
+        yarad_part_mode  => 1,
+        yarad_fail_open  => 1,      # fail open
+        yarad_high_score => 75,
+    };
+    my $pms = fresh_pms();
+    $pms->{conf} = $conf;
+    $pms->{msg}  = bless {}, 'main::FakeMsg';
+
+    $self->parsed_metadata({ permsgstatus => $pms });
+    is($pms->{yarad_error}, 0,
+        'part mode fail-open: a part error does not fire yarad_error (one part completed)');
+}
+
 done_testing();
