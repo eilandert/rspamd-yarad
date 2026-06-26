@@ -243,6 +243,7 @@ func fromOLEDocProps(ole *oleparse.OLEFile, res *Result, deadline time.Time) {
 	}
 
 	var carved [][]byte
+	var metaMarkers []string
 
 	for _, name := range oleDocPropsStreamNames {
 		if expired(deadline) {
@@ -256,13 +257,15 @@ func fromOLEDocProps(ole *oleparse.OLEFile, res *Result, deadline time.Time) {
 		if len(data) == 0 {
 			continue
 		}
-		// Parse DOC_SECURITY (PIDSI 0x13) from SummaryInformation only.
+		// Parse DOC_SECURITY (PIDSI 0x13) + typed maldoc metadata markers from
+		// SummaryInformation only.
 		if name == "\x05SummaryInformation" {
 			if v, ok := docSecurityFlags(data); ok {
 				if len(res.Streams) < maxStreams {
 					res.Streams = append(res.Streams, []byte(fmt.Sprintf("%s%d", oleDocSecMarkerPrefix, v)))
 				}
 			}
+			metaMarkers = append(metaMarkers, oleSummaryMetaMarkers(data)...)
 		}
 		for _, run := range carveStrings(data) {
 			if len(carved) >= maxDocPropsStreams || len(res.Streams)+len(carved) >= maxStreams {
@@ -270,6 +273,18 @@ func fromOLEDocProps(ole *oleparse.OLEFile, res *Result, deadline time.Time) {
 			}
 			carved = append(carved, run)
 		}
+	}
+
+	// Combined OLE-META marker buffer (typed maldoc-metadata signals). Emitted
+	// independently of carved strings so it still routes when SummaryInformation
+	// carries no printable runs. PURE-prefixed → splitPureMarkers → Markers channel.
+	if len(metaMarkers) > 0 && len(res.Streams) < maxStreams {
+		bufs := make([][]byte, len(metaMarkers))
+		for i, m := range metaMarkers {
+			bufs[i] = []byte(m)
+		}
+		res.Streams = append(res.Streams, joinMarkerPayload(oleMetaTag, bufs))
+		res.HasDocProps = true
 	}
 
 	if len(carved) == 0 {
@@ -363,6 +378,144 @@ func docSecurityFlags(data []byte) (uint32, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+// oleMetaTag is the PURE-marker tag for the combined typed-metadata buffer
+// ("OLE-META\n<marker>\n<marker>…"). Registered as a pureMarkerPrefix
+// ("OLE-META\n") so splitPureMarkers routes it to the out-of-band Markers
+// channel. The marker-tagged rules in ole_meta.yara key on the sub-literals.
+const oleMetaTag = "OLE-META"
+
+// Typed maldoc-metadata markers carved from the SummaryInformation property set.
+const (
+	oleMetaRevisionZero    = "OLE-META-REVISION-ZERO"      // RevNumber "0"/"1" (fresh/stomped doc)
+	oleMetaEditTimeZero    = "OLE-META-EDITTIME-ZERO"      // EditTime total == 0 (never interactively edited)
+	oleMetaTemplateInj     = "OLE-META-TEMPLATE-INJECTION" // Template is a remote http(s)/UNC path (T1221)
+	oleMetaAppNameEquation = "OLE-META-APPNAME-EQUATION"   // AppName "Equation" (CVE-2017-11882 vector)
+)
+
+// PIDSI property identifiers in the SummaryInformation property set (MS-OLEPS).
+const (
+	pidsiTemplate  = 0x07 // VT_LPSTR
+	pidsiRevNumber = 0x09 // VT_LPSTR
+	pidsiEditTime  = 0x0A // VT_FILETIME (stored as duration)
+	pidsiAppName   = 0x12 // VT_LPSTR
+)
+
+// summaryPropOffsets parses the property-set stream header and the first
+// section's identifier/offset array, returning propID -> value offset (relative
+// to the section start) plus the section start offset. All reads are
+// bounds-checked; returns (nil, 0, false) on any malformation. Shared by the
+// typed-metadata reader; mirrors the header walk in docSecurityFlags.
+func summaryPropOffsets(data []byte) (map[uint32]uint32, uint32, bool) {
+	if len(data) < 48 {
+		return nil, 0, false
+	}
+	if binary.LittleEndian.Uint16(data[0:2]) != 0xFFFE {
+		return nil, 0, false
+	}
+	if binary.LittleEndian.Uint32(data[24:28]) < 1 { // cSections
+		return nil, 0, false
+	}
+	secOff := binary.LittleEndian.Uint32(data[44:48])
+	if uint64(secOff)+8 > uint64(len(data)) {
+		return nil, 0, false
+	}
+	cProperties := binary.LittleEndian.Uint32(data[secOff+4 : secOff+8])
+	if cProperties == 0 {
+		return nil, 0, false
+	}
+	if cProperties > 1024 {
+		cProperties = 1024
+	}
+	arrayStart := uint64(secOff) + 8
+	if arrayStart+uint64(cProperties)*8 > uint64(len(data)) {
+		return nil, 0, false
+	}
+	m := make(map[uint32]uint32, cProperties)
+	for i := uint32(0); i < cProperties; i++ {
+		base := arrayStart + uint64(i)*8
+		id := binary.LittleEndian.Uint32(data[base : base+4])
+		if _, dup := m[id]; !dup {
+			m[id] = binary.LittleEndian.Uint32(data[base+4 : base+8])
+		}
+	}
+	return m, secOff, true
+}
+
+// oleSummaryMetaMarkers parses a raw SummaryInformation property-set stream and
+// returns the set of typed maldoc-metadata markers present. Heuristics mirror
+// oletools' meta checks: a remote Template path (remote-template injection,
+// T1221), AppName "Equation" (CVE-2017-11882 / EQNEDT32), and the fresh-doc /
+// VBA-stomp pair RevNumber∈{0,1} + EditTime==0. All reads bounds-checked;
+// returns nil on any malformation (fail-open).
+func oleSummaryMetaMarkers(data []byte) []string {
+	offs, secOff, ok := summaryPropOffsets(data)
+	if !ok {
+		return nil
+	}
+
+	// lpstr reads a VT_LPSTR/VT_LPWSTR property value at the given propID, NUL-
+	// trimmed. Returns ("", false) when absent, mistyped, or out of bounds.
+	lpstr := func(id uint32) (string, bool) {
+		off, ok := offs[id]
+		if !ok {
+			return "", false
+		}
+		base := uint64(secOff) + uint64(off)
+		if base+8 > uint64(len(data)) {
+			return "", false
+		}
+		typ := binary.LittleEndian.Uint32(data[base : base+4])
+		if typ != 0x1E && typ != 0x1F { // VT_LPSTR / VT_LPWSTR
+			return "", false
+		}
+		size := binary.LittleEndian.Uint32(data[base+4 : base+8])
+		if size == 0 || size > 1<<16 {
+			return "", false
+		}
+		start := base + 8
+		end := start + uint64(size)
+		if end > uint64(len(data)) {
+			end = uint64(len(data))
+		}
+		return string(bytes.TrimRight(data[start:end], "\x00")), true
+	}
+
+	var out []string
+
+	if tmpl, ok := lpstr(pidsiTemplate); ok {
+		l := strings.ToLower(strings.TrimSpace(tmpl))
+		if strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") || strings.HasPrefix(strings.TrimSpace(tmpl), `\\`) {
+			out = append(out, oleMetaTemplateInj)
+		}
+	}
+	if app, ok := lpstr(pidsiAppName); ok {
+		if strings.Contains(strings.ToLower(app), "equation") {
+			out = append(out, oleMetaAppNameEquation)
+		}
+	}
+
+	// Fresh-doc / VBA-stomp pair: both must hold (rules require co-location).
+	revZero := false
+	if rev, ok := lpstr(pidsiRevNumber); ok {
+		t := strings.TrimSpace(rev)
+		revZero = t == "0" || t == "1"
+	}
+	editZero := false
+	if off, ok := offs[pidsiEditTime]; ok {
+		base := uint64(secOff) + uint64(off)
+		if base+12 <= uint64(len(data)) && binary.LittleEndian.Uint32(data[base:base+4]) == 0x40 { // VT_FILETIME
+			editZero = binary.LittleEndian.Uint64(data[base+4:base+12]) == 0
+		}
+	}
+	if revZero {
+		out = append(out, oleMetaRevisionZero)
+	}
+	if editZero {
+		out = append(out, oleMetaEditTimeZero)
+	}
+	return out
 }
 
 // docPropsMarker is the synthetic marker emitted as the first stream when
