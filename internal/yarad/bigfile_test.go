@@ -1,6 +1,8 @@
 package yarad
 
 import (
+	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"os"
 	"path/filepath"
@@ -178,6 +180,81 @@ func TestBigFileGateNilBigRulesFallsBack(t *testing.T) {
 	}
 	if got := s.BigFileScans(); got != 0 {
 		t.Errorf("BigFileScans = %d, want 0 (no big-file scan happened, fell back)", got)
+	}
+}
+
+// zipWithMember builds an in-memory DEFLATE zip carrying one member. A highly
+// compressible member (marker text + "A" padding) keeps the zip itself tiny while
+// the extracted member is large — exactly the shape that must route the EXTRACTED
+// stream (not the raw body) through the big-file gate.
+func zipWithMember(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// An EXTRACTED stream over the threshold must be scanned against the big-file set,
+// even when the RAW container is under it. We zip a large compressible member so
+// the raw zip stays small (full set, no plaintext marker match) but the carved
+// member is oversized: the big-file rule fires from the stream path and
+// BigFileStreamScans increments. Without the fix the member would hit the full set
+// and FullSetOnly_Rule would fire instead.
+func TestBigFileGateRedirectsOversizedExtractedStream(t *testing.T) {
+	s := newBigScanner(t, 100*1024) // 100 KiB threshold
+	member := bothMarkers(300 * 1024)
+	z := zipWithMember(t, "payload.bin", member)
+	if int64(len(z)) > 100*1024 {
+		t.Fatalf("raw zip %dB unexpectedly over threshold; test cannot isolate the stream path", len(z))
+	}
+	m, err := s.Scan(z, sha256.Sum256(z), ScanMeta{Filename: "x.zip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := matchRuleNames(m)
+	if !has(names, "BigFileOnly_Rule") {
+		t.Errorf("expected BigFileOnly_Rule on oversized extracted member, got %v", names)
+	}
+	if has(names, "FullSetOnly_Rule") {
+		t.Errorf("full-set rule fired on oversized extracted member; stream gate did not redirect: %v", names)
+	}
+	// The carved member can reach the scan path via more than one extractor route
+	// (carrier child + member emit); each oversized hit counts. The contract is
+	// "at least one oversized extracted stream was redirected", not an exact count.
+	if got := s.BigFileStreamScans(); got < 1 {
+		t.Errorf("BigFileStreamScans = %d, want >= 1", got)
+	}
+	if got := s.BigFileScans(); got != 0 {
+		t.Errorf("BigFileScans = %d, want 0 (raw zip under threshold)", got)
+	}
+}
+
+// A sub-threshold extracted member keeps full-rule coverage: the full-set rule
+// fires from the stream path and the stream gate metric stays 0.
+func TestBigFileGateKeepsFullSetForSmallExtractedStream(t *testing.T) {
+	s := newBigScanner(t, 100*1024)
+	member := bothMarkers(1024) // < 100 KiB
+	z := zipWithMember(t, "payload.bin", member)
+	m, err := s.Scan(z, sha256.Sum256(z), ScanMeta{Filename: "x.zip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := matchRuleNames(m)
+	if !has(names, "FullSetOnly_Rule") {
+		t.Errorf("expected FullSetOnly_Rule on small extracted member, got %v", names)
+	}
+	if got := s.BigFileStreamScans(); got != 0 {
+		t.Errorf("BigFileStreamScans = %d, want 0", got)
 	}
 }
 
