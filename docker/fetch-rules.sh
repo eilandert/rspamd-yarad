@@ -206,20 +206,26 @@ if [ "${YARAIFY:-1}" = "1" ]; then
     fi
 fi
 
-# PERF-12 slow-rule denylist (2026-06-25): a profiling run (libyara
-# --enable-profiling, the 14 live samples on one accumulating scanner) found
-# THREE public yaraify rules accounting for 99.3% of ALL scan cost — each an
-# unanchored short-atom regex on a PE/ELF binary rule whose slow string phase
-# runs on every TEXT buffer before its magic condition can reject it, and each
-# matching NOTHING on the mail corpus (PE/ELF go through the hash-lookup path,
-# not yara text rules). Dropping them is ~99% scan-cost cut at zero detection
-# loss for the mail vector. Pruned by RULE NAME (robust to upstream file
-# renames) — any fetched file DECLARING a denied rule is removed; a hit on a
-# multi-rule file is loud (would also drop its siblings) so it can't pass
-# silently. Re-profile after each yaraify refetch (it pulls latest daily): new
-# offenders → add here. Full data: memory/eilandert/rspamd-yarad/issues.md
-# "PERF-12" + perf12-rule-cost.tsv.
-SLOW_RULE_DENYLIST="Luckyware_Infection_Detection kryptina_encryptor DLL_DiceLoader_Fin7_Feb2024"
+# Build-time rule denylist: rules pruned from the fetched bundle before
+# compilation so they are never loaded or run at all.
+#
+# PERF-12 (2026-06-25): THREE public yaraify rules = 99.3% of ALL scan cost on
+# the 14 live samples — each an unanchored short-atom regex on a PE/ELF binary
+# rule whose slow string phase runs on every TEXT buffer before its magic
+# condition can reject it, matching NOTHING on the mail corpus.
+#
+# FP/noise rules (2026-06-25): rules confirmed present in the compiled bundle
+# that fire on benign mail and add no signal for the mail-attachment vector:
+#   Cloaked_RAR_File                         — mis-fires on benign RAR archives
+#   SUSP_Encoded_Discord_Attachment_Oct21_1  — discord URL noise, not mail-vec
+#   SIGNATURE_BASE_SUSP_Encoded_Discord_Attachment_Oct21_1  — same, sigbase copy
+#
+# Pruned by RULE NAME (robust to upstream file renames) — any fetched file
+# DECLARING a denied rule is removed; a hit on a multi-rule file is loud (would
+# also drop its siblings) so it can't pass silently. Re-profile after each
+# yaraify refetch (it pulls latest daily): new offenders → add here.
+# Full data: memory/eilandert/rspamd-yarad/issues.md "PERF-12".
+SLOW_RULE_DENYLIST="Luckyware_Infection_Detection kryptina_encryptor DLL_DiceLoader_Fin7_Feb2024 Cloaked_RAR_File SUSP_Encoded_Discord_Attachment_Oct21_1 SIGNATURE_BASE_SUSP_Encoded_Discord_Attachment_Oct21_1"
 for bad in $SLOW_RULE_DENYLIST; do
     # files that DECLARE this rule (anchored `rule <name>` token, not a substring)
     hits="$(grep -rlE "^[[:space:]]*(private[[:space:]]+|global[[:space:]]+)*rule[[:space:]]+${bad}([[:space:]{:]|\$)" "$OUT" 2>/dev/null || true)"
