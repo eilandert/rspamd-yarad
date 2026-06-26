@@ -78,13 +78,14 @@ type Scanner struct {
 	// Kept in sync with s.rules on Reload (compiled/loaded the same way). nil when
 	// no big-file ruleset is configured, in which case Scan falls back to s.rules
 	// for oversized buffers (logged once) rather than disarming.
-	bigRules         atomic.Pointer[yara.Rules]
-	bigFileThreshold int64         // >0 enables the gate; len(buf) over this uses bigRules
-	bigSrcDir        string        // YARAD_BIGFILE_RULES when it is a directory of sources
-	bigSrcFile       string        // YARAD_BIGFILE_RULES when it is a precompiled .yac
-	bigNilWarned     atomic.Bool   // log the "bigRules nil, falling back" path once
-	bigFileScans     atomic.Uint64 // oversized buffers scanned against bigRules
-	rawScanErrs      atomic.Uint64 // raw-scan failures that fell through to extraction instead of aborting
+	bigRules           atomic.Pointer[yara.Rules]
+	bigFileThreshold   int64         // >0 enables the gate; len(buf) over this uses bigRules
+	bigSrcDir          string        // YARAD_BIGFILE_RULES when it is a directory of sources
+	bigSrcFile         string        // YARAD_BIGFILE_RULES when it is a precompiled .yac
+	bigNilWarned       atomic.Bool   // log the "bigRules nil, falling back" path once
+	bigFileScans       atomic.Uint64 // oversized raw buffers scanned against bigRules
+	bigFileStreamScans atomic.Uint64 // oversized extracted streams scanned against bigRules
+	rawScanErrs        atomic.Uint64 // raw-scan failures that fell through to extraction instead of aborting
 
 	// scanners pools yara.Scanner objects so a scan that overrides external
 	// variables (VBA/filename — every macro stream) doesn't allocate and
@@ -400,6 +401,14 @@ func (s *Scanner) RuleCount() int64 { return s.count.Load() }
 // big-file (targeted) ruleset instead of the full set (BIGFILE gate). Surfaced on
 // /metrics so the gate's firing rate is observable.
 func (s *Scanner) BigFileScans() uint64 { return s.bigFileScans.Load() }
+
+// BigFileStreamScans reports how many oversized EXTRACTED streams (archive/decode/
+// PDF/RTF/TNEF/VBA children over the threshold) were scanned against the big-file
+// ruleset instead of the full set. Without this, a small raw container that
+// expands into multi-MiB children could still spend the full-rules path on every
+// child and exhaust the shared budget even though the raw body was protected.
+// Surfaced on /metrics so the extracted-stream gate's firing rate is observable.
+func (s *Scanner) BigFileStreamScans() uint64 { return s.bigFileStreamScans.Load() }
 
 // RawScanErrs reports how many raw scans failed (timeout/libyara error) and fell
 // through to extraction instead of aborting the request. Surfaced on /metrics so
@@ -1023,7 +1032,25 @@ func (s *Scanner) Scan(buf []byte, digest [32]byte, meta ScanMeta) ([]Match, err
 		if !markerChannel {
 			_, isVBA = vbaKeys[h]
 		}
-		m, serr := s.scanOne(rules, stream, scanVars{vba: isVBA, filename: meta.Filename, extension: meta.Extension, fileType: meta.FileType}, budget)
+		// Oversized-stream cost gate (BIGFILE, extracted side): an extractor can emit
+		// multi-MiB children (VBA 4 MiB, bin 8 MiB, archive member 16 MiB, PDF/RTF/
+		// TNEF/package cumulative tens of MiB). Scanning such a child against the full
+		// ~12k-rule set is the same unbounded cost the raw gate guards against, and it
+		// drains the shared deadline budget for the remaining streams even when the raw
+		// body was under threshold. Route oversized REAL-content streams through the
+		// big-file ruleset too; marker-channel entries are tiny + synthetic so they
+		// always keep the full set. Mirrors the raw gate (nil bigRules → full set).
+		streamRules := rules
+		if !markerChannel && s.bigFileThreshold > 0 && int64(len(stream)) > s.bigFileThreshold {
+			if big := s.bigRules.Load(); big != nil {
+				streamRules = big
+				s.bigFileStreamScans.Add(1)
+				s.logf("oversized extracted stream (%dB > %dB threshold): scanning against big-file ruleset instead of full set", len(stream), s.bigFileThreshold)
+			} else if s.bigNilWarned.CompareAndSwap(false, true) {
+				s.logf("WARNING: oversized extracted stream (%dB) but no big-file ruleset loaded; using full set (may time out)", len(stream))
+			}
+		}
+		m, serr := s.scanOne(streamRules, stream, scanVars{vba: isVBA, filename: meta.Filename, extension: meta.Extension, fileType: meta.FileType}, budget)
 		if serr != nil {
 			s.logf("scan of extracted stream failed (raw verdict kept): %v", serr)
 			return false
