@@ -78,14 +78,14 @@ type Scanner struct {
 	// Kept in sync with s.rules on Reload (compiled/loaded the same way). nil when
 	// no big-file ruleset is configured, in which case Scan falls back to s.rules
 	// for oversized buffers (logged once) rather than disarming.
-	bigRules         atomic.Pointer[yara.Rules]
-	bigFileThreshold int64         // >0 enables the gate; len(buf) over this uses bigRules
-	bigSrcDir        string        // YARAD_BIGFILE_RULES when it is a directory of sources
-	bigSrcFile       string        // YARAD_BIGFILE_RULES when it is a precompiled .yac
-	bigNilWarned     atomic.Bool   // log the "bigRules nil, falling back" path once
-	bigFileScans     atomic.Uint64 // oversized raw buffers scanned against bigRules
+	bigRules           atomic.Pointer[yara.Rules]
+	bigFileThreshold   int64         // >0 enables the gate; len(buf) over this uses bigRules
+	bigSrcDir          string        // YARAD_BIGFILE_RULES when it is a directory of sources
+	bigSrcFile         string        // YARAD_BIGFILE_RULES when it is a precompiled .yac
+	bigNilWarned       atomic.Bool   // log the "bigRules nil, falling back" path once
+	bigFileScans       atomic.Uint64 // oversized raw buffers scanned against bigRules
 	bigFileStreamScans atomic.Uint64 // oversized extracted streams scanned against bigRules
-	rawScanErrs      atomic.Uint64 // raw-scan failures that fell through to extraction instead of aborting
+	rawScanErrs        atomic.Uint64 // raw-scan failures that fell through to extraction instead of aborting
 
 	// scanners pools yara.Scanner objects so a scan that overrides external
 	// variables (VBA/filename — every macro stream) doesn't allocate and
