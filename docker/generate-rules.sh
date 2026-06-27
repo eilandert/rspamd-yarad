@@ -35,9 +35,32 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 note() { echo "generate-rules: $*" >&2; }
-die()  { note "ERROR: $*"; exit 1; }
 
-for bin in docker gh jq sha256sum; do
+# Discord #builds shout (via discord-notify.py → myguard-discord-bot socket; the
+# build host has no DISCORD_WEBHOOK_*, only the bot). Best-effort: a notify
+# failure must never fail the publish, so swallow errors. Located relative to the
+# repo root (HERE) so cron's minimal PATH still finds it.
+NOTIFY="${HERE}/../../tools/discord-notify.py"
+_SHOUTED_FAIL=0
+shout() {  # shout <title> <body>
+    [ -x "$NOTIFY" ] || return 0
+    python3 "$NOTIFY" message "$1" "$2" >/dev/null 2>&1 || true
+}
+shout_fail() {  # shout_fail <body> — fires at most once per run
+    [ "$_SHOUTED_FAIL" -eq 0 ] || return 0
+    _SHOUTED_FAIL=1
+    shout "yarad rules: regeneration FAILED" "$1"
+}
+
+# Any unexpected abort (set -e / a failed command) shouts FAIL to #builds before
+# exiting, so a broken nightly is visible instead of silent. die() shouts its own
+# message; the once-guard stops a double-shout when die triggers ERR.
+# shellcheck disable=SC2154  # rc IS assigned (rc=$?) inside the trap-quoted string
+trap 'rc=$?; [ "$rc" -ne 0 ] && shout_fail "generate-rules.sh exited $rc — rules-current NOT updated. Check /opt/packages/log/yarad-generate-rules.log"; exit $rc' ERR
+
+die()  { note "ERROR: $*"; shout_fail "$*"; exit 1; }
+
+for bin in docker gh jq sha256sum python3; do
     command -v "$bin" >/dev/null 2>&1 || die "missing required tool: $bin"
 done
 
@@ -136,3 +159,9 @@ fi
 gh release upload "$TAG" --repo "$REPO" --clobber "$YAC" "$MANIFEST"
 
 note "published ${TAG}: compiled.yac (v${VERSION}) + manifest"
+
+# Shout success to Discord #builds. Size in MiB; rules count only if known (>0).
+SIZE_MIB="$(awk -v b="$SIZE" 'BEGIN{printf "%.1f", b/1048576}')"
+rules_line=""; [ "${RULES:-0}" -gt 0 ] 2>/dev/null && rules_line=", ${RULES} rules"
+shout "yarad rules: rules-current v${VERSION} published" \
+      "Fresh compiled YARA bundle published to \`${TAG}\` (v${PREV}→v${VERSION}${rules_line}, ${SIZE_MIB} MiB, libyara ${LIBYARA}). yarad \`--fetch-rules\` clients update on next check."
