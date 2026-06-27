@@ -18,7 +18,7 @@ moment the author edits one byte; a YARA rule matches the *shape* of a file (PE
 imports, section entropy, embedded magic) and survives the next variant. yarad
 compiles those rules — libyara modules and all — and runs them over your mail.
 
-**Three ways to plug it into a mail server, all shipped in this repo:**
+**Four ways to plug it into a mail server, all shipped in this repo:**
 
 - **rspamd** — an async `yara.lua` plugin ([`rspamd/`](rspamd/)) POSTs each
   message/part to yarad at SMTP time and turns the hits into a spam-score symbol.
@@ -28,12 +28,15 @@ compiles those rules — libyara modules and all — and runs them over your mai
 - **Dovecot / Sieve** — the lean [`yarad-scan`](#thin-client-for-dovecot--sieve-yarad-scan)
   client scans at *delivery* and a Sieve rule quarantines a match
   ([`sieve/`](sieve/)).
+- **ICAP** — set `YARAD_ICAP_ADDR` and yarad also speaks ICAP (RFC 3507) so an
+  ICAP-aware proxy or content-filter (Squid, c-icap) scans REQMOD/RESPMOD bodies
+  through the same engine ([ICAP mode](#icap-mode-optional)).
 
 ```
  ┌──────────────────────┐  POST /scan ┌────────────┐    ┌──────────────┐
  │ rspamd  (yara.lua)   │ ─────────▶ │   yarad    │ ─▶ │   libyara    │
- │   or  Dovecot/Sieve  │ ◀───────── │(Go service)│    │compiled rules│
- │      (yarad-scan)    │  {matches}  └────────────┘    └──────────────┘
+ │  SpamAssassin / Sieve│ ◀───────── │(Go service)│    │compiled rules│
+ │  (yarad-scan) / ICAP │  {matches}  └────────────┘    └──────────────┘
  └──────────────────────┘
 ```
 
@@ -71,6 +74,37 @@ be scaled, restarted, or reload its rules on its own. Same shape as the
   (`winmail.dat`), OneNote `.one`, PDF (FlateDecode streams), `.lnk` shortcuts,
   VBE/JSE encoded scripts, and nested archives (zip/7z/rar/gz/tar.gz, recursive)
   — then scans each.
+- **Deobfuscates before matching** — decodes long base64/hex runs, undoes
+  `StrReverse`, and folds the olevba string set (`Chr`/`ChrW` concat,
+  `Replace()`, `Array() Xor k`, `Environ`, Dridex `DridexUrlDecode`) to
+  cleartext; a bounded recursive pass unwinds **multi-stage** (2+-layer)
+  payloads, not just the first layer.
+- **Resolves Excel 4.0 (XLM) macros** — detects hidden/very-hidden macrosheets
+  (OOXML + legacy `.xls` BIFF), reassembles `ptg`-token formula strings
+  (BIFF8/`.xlsb`/SLK), and runs a **bounded XLM emulator** (cell eval, `GOTO`,
+  `SET.VALUE`) to resolve obfuscated cell references.
+- **Triages PDFs** — surfaces `/OpenAction`, `/JS`, `/Launch`, `/EmbeddedFile`,
+  `/JBIG2Decode` and hex-name obfuscation as scoreable markers.
+- **Catches macro-less & exploit attacks** — Equation Editor (CVE-2017-11882),
+  remote-template injection (CVE-2017-0199 / T1221), DDE/DDEAUTO fields,
+  MHTML/`x-usc` (CVE-2021-40444), Shell.Explorer CLSID, and OLE structural
+  indicators (`ObjectPool`, embedded Flash, digital-signature, doc-security).
+- **Decrypts default-password documents** — VelvetSweatshop XOR, BIFF8 RC4, and
+  OOXML agile/standard AES, so an "encrypted" but default-keyed payload is
+  unlocked and re-scanned (other encryption is flagged, not cracked).
+- **Analyses carved executables** — PE/ELF structural checks on embedded/decoded
+  binaries (section entropy / packing, overlay, .NET, anomalies), plus base64-PE
+  carving that re-aligns a padded `MZ` header so the `pe` rules fire.
+- **Ships its own heuristic rules** — an mraptor-style autoexec∧write∧execute
+  rule, olevba suspicious-keyword / VBA-shellcode-API heuristics, LOLBin / WMI /
+  PowerShell / anti-analysis intent rules, HTML-smuggling (`data:` URI, embedded
+  SVG) detection, and a position-independent-shellcode `GetEIP` prologue rule.
+- **Scales effort under load** — a single 1–10 effort dial (`YARAD_EFFORT`)
+  scales decode depth, XLM/PDF clamps, feeds and scan timeout; `auto` sheds a
+  level at a time as the admission gate fills and climbs back as it drains.
+- **Speaks ICAP too (optional)** — `YARAD_ICAP_ADDR` adds an RFC 3507
+  REQMOD/RESPMOD listener for ICAP-aware proxies, sharing the same scan engine,
+  cache and concurrency gate as `/scan`.
 - **Uses the attachment name** — `filename`/`extension` YARA vars from the
   plugin's `X-YARAD-Filename`, so name-keyed (THOR/Loki) rules fire.
 - **Checks abuse.ch feeds (optional)** — URLhaus malware-URL/host lookup (with
