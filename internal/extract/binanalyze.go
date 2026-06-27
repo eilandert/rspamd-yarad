@@ -49,6 +49,25 @@ func isValidELFAt(buf []byte) bool {
 // PE/ELF that did not enter any format path still needs analysis). res.Streams
 // is snapshotted before iterating to avoid rescanning appended markers.
 func analyzeBinaries(buf []byte, res *Result) {
+	// Preflight: skip all allocations when neither buf nor any current stream
+	// contains a PE (findPE>=0) or ELF (isValidELFAt at offset 0) candidate.
+	// Uses the same predicates as the loop below, so any candidate the loop
+	// would process is guaranteed to be seen here first.
+	{
+		hasCandidate := isValidELFAt(buf) || findPE(buf, 0) >= 0
+		if !hasCandidate {
+			for _, s := range res.Streams {
+				if isValidELFAt(s) || findPE(s, 0) >= 0 {
+					hasCandidate = true
+					break
+				}
+			}
+		}
+		if !hasCandidate {
+			return
+		}
+	}
+
 	// Build the scan set: original buf first, then all current streams.
 	// Deduplicate by pointer: if buf is already stream[0] (some paths alias it),
 	// the PE/ELF check is idempotent (emit deduplicates by marker string).
