@@ -593,6 +593,23 @@ jobs:
             prove -v -I contrib/spamassassin contrib/spamassassin/t/yarad.t
           '
 
+      - name: spamassassin --lint (real plugin + .pre/.cf load against installed SA)
+        run: |
+          # perl -c above only syntax-checks Yarad.pm; it does NOT exercise the
+          # real plugin registration, the loadplugin in yarad.pre, or the rule
+          # syntax / meta deps in yarad.cf. --lint loads all three against the
+          # installed Mail::SpamAssassin and fails on any plugin-load, eval-rule,
+          # or config error. Closes the long-standing "real-host lint" gap.
+          docker run --rm -v "$PWD:/src" -w /src debian:trixie-slim sh -c '
+            apt-get update >/dev/null 2>&1
+            apt-get install -y --no-install-recommends spamassassin libhttp-tiny-perl perl >/dev/null 2>&1
+            d=/etc/spamassassin
+            install -m644 contrib/spamassassin/Yarad.pm "$d/Yarad.pm"
+            install -m644 contrib/spamassassin/yarad.pre "$d/yarad.pre"
+            install -m644 contrib/spamassassin/yarad.cf  "$d/yarad.cf"
+            spamassassin --lint
+          '
+
       - name: semgrep (non-blocking until tuned)
         continue-on-error: true
         run: |

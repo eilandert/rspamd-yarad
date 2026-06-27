@@ -89,6 +89,15 @@ transport for both Sieve and SpamAssassin.
    prove -v -I . t/yarad.t               # verdict mapping + both transport modes
    ```
 
+   To reproduce the CI **real-host `spamassassin --lint`** (loads the plugin via
+   `yarad.pre` + the rules in `yarad.cf` into an installed SpamAssassin, in a
+   throwaway `debian:trixie-slim` container — no host SA needed):
+
+   ```sh
+   t/sa-lint.sh                          # quiet lint (exit 0 = ok)
+   t/sa-lint.sh -D yarad                 # debug plugin load
+   ```
+
 ## Scoring
 
 A YARA malware match is high-confidence, so the shipped scores (`YARAD 5.0`,
