@@ -463,3 +463,29 @@ func TestIsNestedCarrierRejectsText(t *testing.T) {
 		t.Error("nil wrongly classified as a carrier")
 	}
 }
+
+// TestPreallocHint (PERF-40) pins the anti-amplification clamp: the pre-Grow hint
+// is the declared size bounded by BOTH the per-read hard cap and the modest
+// maxPreallocHint ceiling, and an unknown (zero) size yields no speculative
+// allocation. A member that LIES about its size can therefore force at most
+// maxPreallocHint of pre-allocation, never the multi-MiB hard cap.
+func TestPreallocHint(t *testing.T) {
+	cases := []struct {
+		name     string
+		declared uint64
+		hardCap  uint64
+		want     int
+	}{
+		{"zero_unknown", 0, maxBytesPerMember, 0},
+		{"small_honest", 4096, maxBytesPerMember, 4096},
+		{"at_hint_ceiling", maxPreallocHint, maxBytesPerMember, maxPreallocHint},
+		{"over_hint_under_cap", maxPreallocHint + 1, maxBytesPerMember, maxPreallocHint},
+		{"lying_huge", 1 << 30, maxBytesPerMember, maxPreallocHint},
+		{"declared_over_smallcap", 1 << 20, 64 << 10, 64 << 10}, // hard cap below hint wins
+	}
+	for _, c := range cases {
+		if got := preallocHint(c.declared, c.hardCap); got != c.want {
+			t.Errorf("%s: preallocHint(%d, %d) = %d, want %d", c.name, c.declared, c.hardCap, got, c.want)
+		}
+	}
+}
