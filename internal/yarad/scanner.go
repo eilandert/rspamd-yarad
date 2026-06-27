@@ -195,6 +195,14 @@ type Scanner struct {
 	// the source. nil/empty means no tagging. Denylist wins if a name is in both.
 	allowlist map[string]struct{}
 
+	// denylistFP is a short hash of the SORTED effective denylist, folded into
+	// Fingerprint() so two scanners (or the same scanner before/after SIGHUP) with
+	// different denylists produce different verdict-cache keys — see #251 class.
+	// Updated atomically whenever the effective denylist changes (Reload or
+	// ReloadDenylist). Allowlist is NOT folded: it only tags matches (never
+	// adds/removes them), so the match-set identity is denylist-only.
+	denylistFP atomic.Pointer[string]
+
 	// topMatches counts rule hits since the last reload for /version observability.
 	topMatches *matchCounter
 }
@@ -508,6 +516,19 @@ func (s *Scanner) Reload() error {
 		return err
 	}
 
+	// PERF-30: pre-disable denied rules in the NEWLY LOADED bundle before it is
+	// exposed to scanners. This is safe: the object is fresh from LoadRules/compile
+	// and no scanner holds a reference to it yet (we have not called Swap yet).
+	// disableDeniedRules skips global and private rules to avoid silently suppressing
+	// non-denied rules that reference them in their conditions.
+	deny := func() map[string]struct{} {
+		if p := s.denylist.Load(); p != nil {
+			return *p
+		}
+		return nil
+	}()
+	mainDisabled := disableDeniedRules(rules, deny)
+
 	list := rules.GetRules()
 	s.rules.Swap(rules)
 	s.count.Store(int64(len(list)))
@@ -531,7 +552,7 @@ func (s *Scanner) Reload() error {
 	if s.srcFile != "" {
 		src = s.srcFile
 	}
-	s.logf("loaded %d YARA rules from %s (fp=%s)", s.count.Load(), src, fp)
+	s.logf("loaded %d YARA rules from %s (fp=%s, deny-disabled=%d)", s.count.Load(), src, fp, mainDisabled)
 
 	// Big-file (oversized-buffer) ruleset: compiled/loaded the SAME way as the main
 	// set and swapped in atomically so it stays in sync on every reload/SIGHUP. A
@@ -554,8 +575,10 @@ func (s *Scanner) Reload() error {
 			if s.bigSrcFile != "" {
 				bigSrc = s.bigSrcFile
 			}
+			// PERF-30: pre-disable denied rules before exposing the fresh big-bundle.
+			bigDisabled := disableDeniedRules(big, deny)
 			s.bigRules.Swap(big)
-			s.logf("loaded %d big-file YARA rules from %s (oversized-buffer gate, threshold=%dB)", len(big.GetRules()), bigSrc, s.bigFileThreshold)
+			s.logf("loaded %d big-file YARA rules from %s (oversized-buffer gate, threshold=%dB, deny-disabled=%d)", len(big.GetRules()), bigSrc, s.bigFileThreshold, bigDisabled)
 		}
 	}
 
@@ -564,7 +587,9 @@ func (s *Scanner) Reload() error {
 	// reload — the main set is the trust anchor; the marker channel simply falls
 	// back to the full ruleset (same behaviour as before PERF-18) until the next
 	// good load.
-	if mb, mbErr := buildMarkerBundle(s.srcFile, s.srcDir, s.logf); mbErr != nil {
+	// PERF-30: pass the deny map so denied marker rules are also pre-disabled;
+	// a denied rule that happens to carry the "marker" tag should still be skipped.
+	if mb, mbErr := buildMarkerBundle(s.srcFile, s.srcDir, deny, s.logf); mbErr != nil {
 		s.logf("WARNING: PERF-18 marker bundle build failed, marker channel will use full ruleset: %v", mbErr)
 	} else if mb != nil {
 		s.markerRules.Swap(mb)
@@ -578,6 +603,11 @@ func (s *Scanner) Reload() error {
 	// from source bytes so it is identical across replicas that loaded the same bundle.
 	ch := rulesetContentHash(s.srcFile, s.srcDir, s.bigSrcFile, s.bigSrcDir)
 	s.contentFP.Store(&ch)
+
+	// PERF-30 / #251-class: fold the effective denylist into the Fingerprint so
+	// scanners with different deny sets don't share verdict-cache entries.
+	dlFP := denylistHash(deny)
+	s.denylistFP.Store(&dlFP)
 
 	// Reset the top-matches counter so counts reflect the current rule set only,
 	// not a mix of old and new rule names that may have been renamed/removed.
@@ -594,6 +624,13 @@ func (s *Scanner) Reload() error {
 // a function of BOTH the rules and how macros were decompressed, so an extractor
 // bump must invalidate the cache (especially the Redis L2 that survives an image
 // rebuild) exactly like a rule change does.
+//
+// The effective denylist is also folded (#251-class fix): pre-disabling denied
+// rules changes WHICH rules can fire, so two scanners with different denylists
+// must never share a verdict-cache entry. denylistFP is a hash of the SORTED
+// deny set (deterministic across replicas) updated on every Reload/ReloadDenylist.
+// Allowlist is intentionally NOT folded: it only tags matches (yarad_allow=1),
+// never adds or removes them, so the match-set identity is unchanged by it.
 func (s *Scanner) Fingerprint() string {
 	fp := ""
 	if p := s.fp.Load(); p != nil {
@@ -603,7 +640,68 @@ func (s *Scanner) Fingerprint() string {
 	if p := s.contentFP.Load(); p != nil {
 		ch = *p
 	}
-	return extract.Version + ":" + fp + ":" + ch
+	dl := ""
+	if p := s.denylistFP.Load(); p != nil {
+		dl = *p
+	}
+	return extract.Version + ":" + fp + ":" + ch + ":" + dl
+}
+
+// denylistHash returns a short deterministic hash of the SORTED deny set so the
+// same set always produces the same value across replicas. The empty set hashes
+// to a fixed constant so a nil/empty denylist is distinguishable from a
+// non-empty one. Called by Reload and ReloadDenylist to refresh denylistFP.
+func denylistHash(deny map[string]struct{}) string {
+	if len(deny) == 0 {
+		return "0000000000000000"
+	}
+	names := make([]string, 0, len(deny))
+	for k := range deny {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	h := sha256.Sum256([]byte(strings.Join(names, "\n")))
+	return hex.EncodeToString(h[:8])
+}
+
+// disableDeniedRules disables, in the C YARA object, every rule in rules whose
+// lowercase identifier matches a key in deny. Returns the count of rules
+// disabled.
+//
+// Safety constraints:
+//   - Global and private rules are NEVER disabled regardless of the denylist.
+//     In YARA a global rule's condition is implicitly ANDed into every rule in
+//     the same namespace; a private rule may be referenced in another rule's
+//     condition. Pre-disabling either could silently suppress a non-denied rule's
+//     match — a false-negative in a rule we DO want. The post-match filterDenied
+//     remains the correctness authority and still drops denied global/private
+//     matches.
+//   - Canary mode: pre-disabling is independent of canary — canary tags ALL
+//     surviving matches (post-filterDenied), so a pre-disabled rule simply
+//     produces no match to tag; filterDenied has already determined it was denied.
+//   - This function is called on a freshly-loaded *yara.Rules object before it
+//     is swapped into the atomic.Pointer and exposed to scanners. It is therefore
+//     safe from concurrent-access races: no scanner has a reference to this
+//     object yet.
+func disableDeniedRules(rules *yara.Rules, deny map[string]struct{}) int {
+	if len(deny) == 0 || rules == nil {
+		return 0
+	}
+	allRules := rules.GetRules()
+	disabled := 0
+	for i := range allRules {
+		r := &allRules[i]
+		// Skip global and private rules — see comment above.
+		if r.IsGlobal() || r.IsPrivate() {
+			continue
+		}
+		name := strings.ToLower(r.Identifier())
+		if _, denied := deny[name]; denied {
+			r.Disable()
+			disabled++
+		}
+	}
+	return disabled
 }
 
 // fingerprint hashes the sorted rule identities (namespace + identifier) so the
@@ -797,7 +895,7 @@ func compileDir(dir string, logf func(string, ...any)) (*yara.Rules, error) {
 // Returns nil, nil when srcFile and srcDir are both empty (no source to
 // recompile). Returns an error on compilation failure; the caller falls back to
 // the full ruleset.
-func buildMarkerBundle(srcFile, srcDir string, logf func(string, ...any)) (*yara.Rules, error) {
+func buildMarkerBundle(srcFile, srcDir string, deny map[string]struct{}, logf func(string, ...any)) (*yara.Rules, error) {
 	if srcFile == "" && srcDir == "" {
 		return nil, nil
 	}
@@ -824,8 +922,12 @@ func buildMarkerBundle(srcFile, srcDir string, logf func(string, ...any)) (*yara
 			disabled++
 		}
 	}
-	logf("PERF-18: marker bundle built: %d rules disabled, %d marker rules active",
-		disabled, total-disabled)
+	// Pre-disable runtime-denied rules (PERF-30). filterDenied remains the
+	// post-match authority; this only avoids unnecessary C scanning work.
+	// Global/private rules are intentionally skipped (dependency hazard).
+	mbDisabled := disableDeniedRules(bundle, deny)
+	logf("PERF-18: marker bundle built: %d rules disabled, %d marker rules active; %d pre-disabled by denylist",
+		disabled, total-disabled, mbDisabled)
 	return bundle, nil
 }
 
@@ -1478,6 +1580,12 @@ func (s *Scanner) ReloadDenylist() {
 	}
 	s.denylist.Store(&merged)
 	s.logf("denylist reloaded: %d from env + %d from file = %d total", len(s.baseDenylist), added, len(merged))
+	// Re-apply deny set to loaded bundles by triggering a full Reload.
+	// This is safe: Reload compiles fresh bundles (new C objects) and swaps
+	// them atomically, so in-flight scans on the old bundles are unaffected.
+	if err := s.Reload(); err != nil {
+		s.logf("WARNING: Reload after denylist change failed: %v (pre-disable may be stale)", err)
+	}
 }
 
 // Close releases the scanner's background resources: it stops the abuse.ch feed
