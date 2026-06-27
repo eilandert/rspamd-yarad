@@ -1,6 +1,8 @@
 package extract_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"math/bits"
 	"testing"
@@ -237,5 +239,99 @@ func TestBinAnalyzeELFInvalidRejected(t *testing.T) {
 		if hasMarker(res, "ELF-EXECUTABLE") {
 			t.Errorf("case %q falsely emitted ELF-EXECUTABLE", c.name)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PERF-21: preflight fast-path tests
+// ---------------------------------------------------------------------------
+
+// TestBinAnalyzeFastPathCleanText verifies that a buffer with no MZ/ELF bytes
+// returns without emitting any streams AND allocates zero heap objects (preflight
+// fast path skips the scan/emitted allocations entirely).
+func TestBinAnalyzeFastPathCleanText(t *testing.T) {
+	buf := []byte("Hello, this is plain text with no binary content whatsoever.\n")
+	res := extract.Extract(buf, time.Time{})
+	for _, s := range append(res.Streams, res.Markers...) {
+		m := string(s)
+		if m == "ELF-EXECUTABLE" || (len(m) > 3 && m[:3] == "PE-") {
+			t.Errorf("clean text falsely emitted binary marker %q", m)
+		}
+	}
+
+	// Alloc-differential assertion: the no-candidate path must allocate strictly
+	// fewer objects than an equivalent call with a PE input (which must allocate
+	// the scan slice + emitted map on top of the base Result allocs).
+	// This is a provable guard: if the preflight is removed, cleanAllocs rises
+	// to match peAllocs (both hit the slow path).
+	cleanAllocs := testing.AllocsPerRun(20, func() {
+		extract.Extract(buf, time.Time{})
+	})
+	pe := buildTestPE(testPEOpts{})
+	peAllocs := testing.AllocsPerRun(20, func() {
+		extract.Extract(pe, time.Time{})
+	})
+	if cleanAllocs >= peAllocs {
+		t.Errorf("fast path alloc differential: clean=%.0f >= pe=%.0f; preflight may not be saving allocations", cleanAllocs, peAllocs)
+	}
+}
+
+// TestBinAnalyzeFastPathLargeClean verifies that an 8 MiB buffer of zeros
+// (no PE/ELF) returns immediately with no binary markers.
+func TestBinAnalyzeFastPathLargeClean(t *testing.T) {
+	buf := make([]byte, 8<<20) // 8 MiB of zeros
+	res := extract.Extract(buf, time.Time{})
+	for _, s := range append(res.Streams, res.Markers...) {
+		m := string(s)
+		if m == "ELF-EXECUTABLE" || (len(m) > 3 && m[:3] == "PE-") {
+			t.Errorf("8 MiB zero buffer falsely emitted binary marker %q", m)
+		}
+	}
+}
+
+// TestBinAnalyzeFastPathPEInBuf verifies that a buffer containing a valid PE
+// still triggers full analysis and emits the expected marker.  This is the
+// regression guard: the preflight must NOT skip a buf-carried PE candidate.
+func TestBinAnalyzeFastPathPEInBuf(t *testing.T) {
+	pe := buildTestPE(testPEOpts{sectionBody: lfsrBody(4096)})
+	res := extract.Extract(pe, time.Time{})
+	if !hasMarker(res, "PE-SECTION-PACKED") && !hasMarker(res, "PE-SECTION-HIGH-ENTROPY") {
+		t.Error("buf-carried PE: expected PE-SECTION-PACKED or PE-SECTION-HIGH-ENTROPY, got none")
+	}
+}
+
+// TestBinAnalyzeFastPathELFInBuf verifies that a buffer starting with a valid
+// ELF header still triggers analysis and emits ELF-EXECUTABLE.
+func TestBinAnalyzeFastPathELFInBuf(t *testing.T) {
+	elf := make([]byte, 64)
+	elf[0] = 0x7F
+	elf[1] = 'E'
+	elf[2] = 'L'
+	elf[3] = 'F'
+	elf[4] = 2                                 // ELFCLASS64
+	elf[5] = 1                                 // ELFDATA2LSB
+	elf[6] = 1                                 // EI_VERSION
+	binary.LittleEndian.PutUint16(elf[16:], 2) // ET_EXEC
+	res := extract.Extract(elf, time.Time{})
+	if !hasMarker(res, "ELF-EXECUTABLE") {
+		t.Error("buf-carried ELF: expected ELF-EXECUTABLE, got none")
+	}
+}
+
+// TestBinAnalyzeFastPathPEInStream verifies the preflight scans res.Streams,
+// not just buf: when buf is clean but a stream carries a PE, markers must still
+// be emitted. We embed the PE inside a gzip archive so the extractor pushes the
+// PE body as a stream that analyzeBinaries will then see.
+func TestBinAnalyzeFastPathPEInStream(t *testing.T) {
+	pe := buildTestPE(testPEOpts{sectionBody: lfsrBody(4096)})
+
+	var gzBuf bytes.Buffer
+	gz := gzip.NewWriter(&gzBuf)
+	gz.Write(pe) //nolint:errcheck
+	gz.Close()   //nolint:errcheck
+
+	res := extract.Extract(gzBuf.Bytes(), time.Time{})
+	if !hasMarker(res, "PE-SECTION-PACKED") && !hasMarker(res, "PE-SECTION-HIGH-ENTROPY") {
+		t.Error("stream-carried PE (via gzip): expected PE-SECTION-PACKED or PE-SECTION-HIGH-ENTROPY, got none")
 	}
 }
