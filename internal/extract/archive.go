@@ -245,8 +245,17 @@ func emitMember(data []byte, res *Result, b *archiveBudget, depth int, deadline 
 
 // readMember reads one archive member from rc, bounded by maxBytesPerMember so a
 // member that lies about its size can't exhaust memory. Returns nil on error.
-func readMember(rc io.Reader) []byte {
+// readMember reads one archive member, hard-capped at maxBytesPerMember. declared
+// is the member's declared uncompressed size (0 when the format/stream does not
+// expose one); PERF-40 uses it to pre-size the buffer via preallocHint, clamped to
+// the hard cap and the anti-amplification ceiling, so an honest modest member
+// avoids regrow churn while a lying header can force at most maxPreallocHint of
+// speculative allocation.
+func readMember(rc io.Reader, declared uint64) []byte {
 	var buf bytes.Buffer
+	if h := preallocHint(declared, maxBytesPerMember); h > 0 {
+		buf.Grow(h)
+	}
 	if _, err := buf.ReadFrom(io.LimitReader(rc, maxBytesPerMember)); err != nil {
 		return nil
 	}
@@ -283,7 +292,7 @@ func unpackZip(buf []byte, res *Result, b *archiveBudget, depth int, deadline ti
 		if err != nil {
 			continue
 		}
-		data := readMember(rc)
+		data := readMember(rc, f.UncompressedSize64)
 		_ = rc.Close()
 		emitMember(data, res, b, depth, deadline)
 	}
@@ -299,7 +308,7 @@ func unpackGzip(buf []byte, res *Result, b *archiveBudget, depth int, deadline t
 	}
 	defer gr.Close()
 	res.IsArchive = true
-	data := readMember(gr)
+	data := readMember(gr, 0) // gzip stream exposes no reliable uncompressed size
 	if len(data) == 0 {
 		return
 	}
@@ -330,7 +339,11 @@ func unpackTar(buf []byte, res *Result, b *archiveBudget, depth int, deadline ti
 		if h.Size > maxBytesPerMember {
 			continue
 		}
-		data := readMember(tr)
+		var decl uint64
+		if h.Size > 0 {
+			decl = uint64(h.Size)
+		}
+		data := readMember(tr, decl)
 		emitMember(data, res, b, depth, deadline)
 	}
 }
@@ -377,7 +390,7 @@ func unpack7z(buf []byte, res *Result, b *archiveBudget, depth int, deadline tim
 			}
 			continue // encrypted/corrupt member: skip, keep the rest
 		}
-		data := readMember(rc)
+		data := readMember(rc, f.UncompressedSize)
 		_ = rc.Close()
 		emitMember(data, res, b, depth, deadline)
 	}
@@ -434,7 +447,11 @@ func unpackRar(buf []byte, res *Result, b *archiveBudget, depth int, deadline ti
 		if h.UnPackedSize > maxBytesPerMember {
 			continue
 		}
-		data := readMember(rr)
+		var decl uint64
+		if h.UnPackedSize > 0 {
+			decl = uint64(h.UnPackedSize)
+		}
+		data := readMember(rr, decl)
 		emitMember(data, res, b, depth, deadline)
 	}
 }

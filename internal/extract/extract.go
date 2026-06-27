@@ -188,6 +188,31 @@ const (
 	maxTotalMSG = 48 << 20
 )
 
+// maxPreallocHint bounds how many bytes a read helper may pre-Grow its buffer to
+// from an UNTRUSTED declared size (PERF-40). The common archive member / zip entry
+// is well under this, so pre-sizing eliminates the bytes.Buffer regrow churn for
+// the realistic case; the modest ceiling means a member that LIES about its
+// uncompressed size (tiny stored entry declaring a huge UncompressedSize64) can
+// force at most this much speculative allocation per read — not the full
+// per-member hard cap (8/16 MiB). The hard LimitReader ceiling still bounds the
+// actual bytes copied, so a real big member just regrows past the hint as before.
+const maxPreallocHint = 256 << 10
+
+// preallocHint returns a safe initial buffer capacity for a read whose declared
+// uncompressed size is `declared` and whose hard ceiling is `hardCap`: the
+// declared size clamped to both the hard cap and maxPreallocHint. A zero/unknown
+// declared size yields 0 (no speculative allocation).
+func preallocHint(declared, hardCap uint64) int {
+	n := declared
+	if n > hardCap {
+		n = hardCap
+	}
+	if n > maxPreallocHint {
+		n = maxPreallocHint
+	}
+	return int(n)
+}
+
 // msiRootCLSID is the OLE2 root-storage CLSID for a Windows Installer database
 // ({000C1084-0000-0000-C000-000000000046}) in on-disk little-endian byte order.
 // Used to recognise an MSI so its streams are dumped only for real installers,
@@ -1400,6 +1425,12 @@ func readZipEntry(f *zip.File) []byte {
 	}
 	defer rc.Close()
 	var b bytes.Buffer
+	// PERF-40: pre-size from the declared uncompressed size, clamped to the hard
+	// cap and the anti-amplification hint, so the common (honest, modest) entry
+	// avoids bytes.Buffer regrow churn. The LimitReader below is the real ceiling.
+	if h := preallocHint(f.UncompressedSize64, maxBytesPerBin); h > 0 {
+		b.Grow(h)
+	}
 	// Hard ceiling independent of the (untrusted) zip-header size field.
 	if _, err := b.ReadFrom(io.LimitReader(rc, maxBytesPerBin)); err != nil {
 		return nil
