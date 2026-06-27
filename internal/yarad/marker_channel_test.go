@@ -158,7 +158,7 @@ func TestBuildMarkerBundle_DisablesNonMarker(t *testing.T) {
 	dir := writeRules(t, perf18Rules)
 	logf := func(string, ...any) {}
 
-	bundle, err := buildMarkerBundle("", dir, logf)
+	bundle, err := buildMarkerBundle("", dir, nil, logf)
 	if err != nil {
 		t.Fatalf("buildMarkerBundle: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestBuildMarkerBundle_GoldenNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compileDir: %v", err)
 	}
-	bundle, err := buildMarkerBundle("", dir, logf)
+	bundle, err := buildMarkerBundle("", dir, nil, logf)
 	if err != nil {
 		t.Fatalf("buildMarkerBundle: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestBuildMarkerBundle_Completeness(t *testing.T) {
 	}
 
 	dir := writeRules(t, sb.String())
-	bundle, err := buildMarkerBundle("", dir, func(string, ...any) {})
+	bundle, err := buildMarkerBundle("", dir, nil, func(string, ...any) {})
 	if err != nil {
 		t.Fatalf("buildMarkerBundle: %v", err)
 	}
