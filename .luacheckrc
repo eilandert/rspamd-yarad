@@ -1,4 +1,4 @@
--- luacheck configuration for rspamd-yarad Lua plugin
+-- luacheck configuration for mailstrix Lua plugin
 -- rspamd injects these as globals at load time; declaring them here suppresses
 -- "accessing undefined global" warnings without needing rspamd installed.
 std = "max"

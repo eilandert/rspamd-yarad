@@ -3,7 +3,7 @@ rule Maldoc_DocProps_Payload : marker
     meta:
         description = "Suspicious strings hidden in document properties or custom XML"
         score       = 35
-        author      = "yarad"
+        author      = "mailstrix"
 
     strings:
         $marker  = "DOCPROPS-STRINGS"

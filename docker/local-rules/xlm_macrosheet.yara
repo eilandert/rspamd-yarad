@@ -13,7 +13,7 @@ rule XLM_Hidden_Macrosheet : maldoc heuristic suspicious {
 // XLM-DANGEROUS-FUNC <FN> markers are emitted by the XLM constant-fold
 // (internal/extract/xlm_fold.go emitDangerousMarkers) when a folded Excel-4.0
 // formula calls a code-execution / file-dropping function. The marker prefix is
-// emitted ONLY by yarad, so matching the literal is zero-FP by construction.
+// emitted ONLY by mailstrix, so matching the literal is zero-FP by construction.
 // EXEC/CALL/REGISTER are the Excel-4.0 dropper class (run a command, call an
 // arbitrary DLL export, register a foreign function); FOPEN/FWRITE/HALT are the
 // supporting file-drop + anti-analysis primitives.
@@ -73,11 +73,11 @@ rule XLM_Hidden_Dangerous_Dropper : maldoc heuristic suspicious marker {
 rule XLM_Emulator_Deep_Exec : maldoc heuristic marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "XLM macro with CALL in a looped or branched execution path — evasion indicator"
         score       = "75"
     strings:
-        // Require the qualified yarad marker, not a bare "CALL" — the latter
+        // Require the qualified mailstrix marker, not a bare "CALL" — the latter
         // matches sheet names / unrelated text inside the XLM-STACK buffer and
         // fires the rule on co-located looped/branched markers without an actual
         // CALL. The fold emits "XLM-DANGEROUS-FUNC CALL" for a real CALL ptg.

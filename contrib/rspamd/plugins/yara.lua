@@ -1,18 +1,18 @@
 --[[
 yara.lua — rspamd plugin that scans a message (and optionally each MIME part)
-against a set of YARA rules through the yarad HTTP backend.
+against a set of YARA rules through the strixd HTTP backend.
 
-Project:  https://github.com/eilandert/rspamd-yarad
-Write-up: https://deb.myguard.nl/2026/06/yara-malware-scanning-rspamd-yarad/
+Project:  https://github.com/eilandert/mailstrix
+Write-up: https://deb.myguard.nl/2026/06/yara-malware-scanning-mailstrix/
 
 Why a backend instead of a native module:
   * rspamd has no native YARA module (as of 4.1.0; upstream feature is still an
     open request). libyara is a CGO dependency that would block the worker event
     loop if run in-process.
-  * yarad scans out-of-process and answers over HTTP, so this plugin stays fully
+  * strixd scans out-of-process and answers over HTTP, so this plugin stays fully
     async (rspamd_http) and libyara never enters the rspamd image.
 
-yarad returns JSON:
+strixd returns JSON:
   { "matches": [ { "rule": "<name>", "namespace": "<file>", "tags": [..], "meta": {..} }, ... ] }
 
 Each matched rule is classified (see classify()) into one scoring-tier symbol —
@@ -36,16 +36,16 @@ local N = "yara"
 -- Defaults; overridden by the matching section in local.d/yara.conf.
 local settings = {
   url = "http://127.0.0.1:8079/scan",
-  token = "",                  -- shared secret; must equal yarad's YARAD_TOKEN
+  token = "",                  -- shared secret; must equal strixd's MAILSTRIX_TOKEN
   token_file = "",             -- path to a file holding the token (preferred over
                                -- inline `token`; keeps the secret out of config)
-  -- This must cover yarad's worst-case response: the time to acquire a scan slot
-  -- (YARAD_BACKEND_TIMEOUT) PLUS the scan itself (YARAD_SCAN_TIMEOUT). yarad's
+  -- This must cover strixd's worst-case response: the time to acquire a scan slot
+  -- (MAILSTRIX_BACKEND_TIMEOUT) PLUS the scan itself (MAILSTRIX_SCAN_TIMEOUT). strixd's
   -- defaults are intentionally aligned to fit this: 1s queue + 8s scan = 9s,
   -- leaving a little HTTP/JSON overhead before this 10s client timeout expires.
   -- A plugin timeout below that sum just abandons scans that are still running.
   timeout = 10.0,
-  max_size = 8 * 1024 * 1024,  -- don't ship bodies larger than this to yarad
+  max_size = 8 * 1024 * 1024,  -- don't ship bodies larger than this to strixd
   -- Scoring tiers. Each matched rule is classified (see classify()) into ONE of
   -- these symbols by its name/source-file/tags/meta.score, so different kinds of
   -- hit score differently in groups.conf instead of one flat weight for every
@@ -55,23 +55,23 @@ local settings = {
   symbol_exploit    = "YARA_EXPLOIT",     -- exploit / CVE / maldoc exploit
   symbol_phishing   = "YARA_PHISHING",    -- phishing kit / phishing document
   symbol_suspicious = "YARA_SUSPICIOUS",  -- heuristic / suspicious / anomaly
-  -- Separate symbol for yarad's URLhaus malware-URL hits (rule names start
+  -- Separate symbol for strixd's URLhaus malware-URL hits (rule names start
   -- "URLHAUS_"), so they score independently of YARA rule matches.
   urlhaus_symbol = "URLHAUS_MALWARE_URL",
-  -- Separate symbol for yarad's MalwareBazaar attachment-hash hits (rule name
+  -- Separate symbol for strixd's MalwareBazaar attachment-hash hits (rule name
   -- "MALWAREBAZAAR_MALWARE"): an exact SHA256 match of the attachment against a
   -- known malware sample — a strong, standalone verdict.
   mbazaar_symbol = "MALWAREBAZAAR_MALWARE",
-  -- Separate symbol for yarad's ThreatFox IOC hits (rule names start
+  -- Separate symbol for strixd's ThreatFox IOC hits (rule names start
   -- "THREATFOX_"): a URL/domain in the message or macro matched abuse.ch
   -- ThreatFox. Routed to its own feed tier so it scores on an operator-tunable
   -- weight, not the generic YARA classification.
   threatfox_symbol = "THREATFOX_IOC",
-  -- Separate symbol for yarad's Feodo Tracker hits (rule names start "FEODO_"):
+  -- Separate symbol for strixd's Feodo Tracker hits (rule names start "FEODO_"):
   -- a URL whose host IP matched the abuse.ch Feodo botnet C&C blocklist.
   feodo_symbol = "FEODO_CC_IP",
-  -- Log-only symbol for rules yarad has allowlisted (meta.yarad_allow="1", set
-  -- by YARAD_RULE_ALLOWLIST): the match is still surfaced (visible in history)
+  -- Log-only symbol for rules strixd has allowlisted (meta.mailstrix_allow="1", set
+  -- by MAILSTRIX_RULE_ALLOWLIST): the match is still surfaced (visible in history)
   -- but routed here so groups.conf can score it 0 — a known-FP rule demoted
   -- without dropping it or patching the source.
   allow_symbol = "YARA_ALLOWLISTED",
@@ -89,18 +89,18 @@ local settings = {
   score_weight_min = 0.5,
   score_weight_max = 1.5,
   -- Cap on /scan requests per message (whole-message job + part jobs). A mail
-  -- with dozens of parts can't fan out unbounded into yarad. Identical parts
+  -- with dozens of parts can't fan out unbounded into strixd. Identical parts
   -- (same attachment twice) are also deduped by their digest before this cap.
   max_jobs = 32,
   -- Per-request effort tier (EFFORT-3). When enabled, the plugin sets the
-  -- X-YARAD-Effort header from this message's signals so yarad spends deeper
+  -- X-MAILSTRIX-Effort header from this message's signals so strixd spends deeper
   -- (slower, more decode passes) on suspicious senders and stays shallow/cheap on
-  -- trusted ones. yarad clamps the header to its YARAD_EFFORT_MAX, so this can
+  -- trusted ones. strixd clamps the header to its MAILSTRIX_EFFORT_MAX, so this can
   -- only ever LOWER effort below the operator's ceiling, never raise it past the
-  -- DoS bound. Disabled by default (no header sent → yarad uses its own
+  -- DoS bound. Disabled by default (no header sent → strixd uses its own
   -- env/auto default, today's behaviour).
   effort_enabled = false,
-  effort_max = 10,           -- the dial's top (mirror yarad's YARAD_EFFORT_MAX)
+  effort_max = 10,           -- the dial's top (mirror strixd's MAILSTRIX_EFFORT_MAX)
   effort_min = 1,            -- floor for the most-trusted senders
   -- Prior rspamd metric score → effort. At/below effort_score_low the sender
   -- looks clean (→ effort_min); at/above effort_score_high it looks bad
@@ -114,13 +114,13 @@ local settings = {
   effort_force_symbols = { "R_SPF_FAIL", "R_SPF_SOFTFAIL", "DMARC_POLICY_REJECT", "R_DKIM_REJECT" },
 }
 
--- post sends buf to yarad and invokes cb(matches) with the decoded rule list
+-- post sends buf to strixd and invokes cb(matches) with the decoded rule list
 -- (possibly empty). Errors are logged and treated as "no match" (fail-open):
 -- a scanner problem must never block mail. fname (optional) is the attachment
--- filename; it is passed to yarad so the YARA filename/extension external vars
+-- filename; it is passed to strixd so the YARA filename/extension external vars
 -- get set and name-keyed rules (THOR/Loki) fire.
--- compute_effort derives the X-YARAD-Effort value (1..effort_max) for this
--- message, or nil when the feature is disabled (so no header is sent and yarad
+-- compute_effort derives the X-MAILSTRIX-Effort value (1..effort_max) for this
+-- message, or nil when the feature is disabled (so no header is sent and strixd
 -- falls back to its own default/auto). Cheap, signal-driven: clean/trusted
 -- senders get the minimum, suspicious ones the maximum. Computed once per
 -- message (not per part) — the sender's reputation is a message property.
@@ -160,18 +160,18 @@ end
 local function post(task, buf, what, fname, effort, cb)
   local function http_cb(err, code, body)
     if err then
-      rspamd_logger.errx(task, "yarad request failed (%s): %s", what, err)
+      rspamd_logger.errx(task, "strixd request failed (%s): %s", what, err)
       return cb({})
     end
     if code ~= 200 then
-      rspamd_logger.errx(task, "yarad returned HTTP %s (%s)", code, what)
+      rspamd_logger.errx(task, "strixd returned HTTP %s (%s)", code, what)
       return cb({})
     end
     local ucl = require "ucl"
     local parser = ucl.parser()
     local ok, perr = parser:parse_string(body)
     if not ok then
-      rspamd_logger.errx(task, "cannot parse yarad response: %s", perr)
+      rspamd_logger.errx(task, "cannot parse strixd response: %s", perr)
       return cb({})
     end
     local res = parser:get_object()
@@ -183,19 +183,19 @@ local function post(task, buf, what, fname, effort, cb)
 
   local headers = { ["Content-Type"] = "application/octet-stream" }
   if settings.token and settings.token ~= "" then
-    headers["X-YARAD-Token"] = settings.token
+    headers["X-MAILSTRIX-Token"] = settings.token
   end
   -- The attachment filename comes from the (attacker-controlled) email, so it is
   -- base64-encoded: that keeps an embedded newline / control byte from injecting
-  -- an HTTP header. yarad decodes it and sets the YARA filename/extension vars.
+  -- an HTTP header. strixd decodes it and sets the YARA filename/extension vars.
   if fname and fname ~= "" then
-    headers["X-YARAD-Filename"] = rspamd_util.encode_base64(fname)
+    headers["X-MAILSTRIX-Filename"] = rspamd_util.encode_base64(fname)
   end
-  -- Per-request effort tier (EFFORT-3). Integer only; yarad clamps it to its
+  -- Per-request effort tier (EFFORT-3). Integer only; strixd clamps it to its
   -- configured ceiling, so a stale/oversized value can never raise effort past
-  -- the DoS bound. nil → no header → yarad uses its own default.
+  -- the DoS bound. nil → no header → strixd uses its own default.
   if effort then
-    headers["X-YARAD-Effort"] = tostring(effort)
+    headers["X-MAILSTRIX-Effort"] = tostring(effort)
   end
 
   -- rspamd_http.request returns false when it could not even schedule the
@@ -212,7 +212,7 @@ local function post(task, buf, what, fname, effort, cb)
     headers = headers,
   })
   if not scheduled then
-    rspamd_logger.errx(task, "yarad request could not be scheduled (%s)", what)
+    rspamd_logger.errx(task, "strixd request could not be scheduled (%s)", what)
     return cb({})
   end
 end
@@ -235,12 +235,12 @@ end
 
 -- classify maps a matched YARA rule to a scoring-tier symbol from its name,
 -- source file (namespace), tags and any meta.score. Heuristic and intentionally
--- tunable here (retuning needs only an rspamd reload, no yarad rebuild). The
+-- tunable here (retuning needs only an rspamd reload, no strixd rebuild). The
 -- strongest signal wins; anything unrecognised falls back to the default symbol.
 local function classify(m)
   -- Authoritative override: a rule may self-declare its scoring tier via
   -- meta.tier ("malware"/"exploit"/"phishing"/"suspicious"). Honour it first so
-  -- yarad's own marker/heuristic rules classify deterministically instead of
+  -- strixd's own marker/heuristic rules classify deterministically instead of
   -- being keyword-guessed from the rule name below (a LOLBin download-execute
   -- hit, for example, otherwise falls through to the generic YARA symbol).
   -- Read settings.symbol_* at call time so config overrides are respected.
@@ -314,8 +314,8 @@ local function check_cb(task)
         local dg = part:get_digest()
         if not (dg and seen_parts[dg]) then
           if dg then seen_parts[dg] = true end
-          -- Pass the attachment filename so yarad sets the YARA filename/extension
-          -- external vars (nil for an unnamed part — yarad then leaves them empty).
+          -- Pass the attachment filename so strixd sets the YARA filename/extension
+          -- external vars (nil for an unnamed part — strixd then leaves them empty).
           jobs[#jobs + 1] = { buf = content, what = "part", fname = part:get_filename() }
         end
       end
@@ -409,13 +409,13 @@ local function check_cb(task)
             if m.namespace and m.namespace ~= "" then
               opt = m.rule .. " (" .. m.namespace .. ")"
             end
-            -- Explainability: for yarad's own marker/heuristic rules
-            -- (meta.author=="yarad"), append the human description so the symbol
+            -- Explainability: for strixd's own marker/heuristic rules
+            -- (meta.author=="strixd"), append the human description so the symbol
             -- option in rspamd history says WHY it fired ("Living-off-the-land
             -- binary invoked with a download/execute argument") instead of only a
             -- rule name. Bounded so a long description can't bloat the option.
-            -- Restricted to yarad rules: baked-corpus descriptions are noisy/huge.
-            if type(m.meta) == "table" and m.meta.author == "yarad"
+            -- Restricted to strixd rules: baked-corpus descriptions are noisy/huge.
+            if type(m.meta) == "table" and m.meta.author == "strixd"
               and type(m.meta.description) == "string" and m.meta.description ~= "" then
               local d = m.meta.description
               if #d > 80 then d = d:sub(1, 77) .. "..." end
@@ -428,9 +428,9 @@ local function check_cb(task)
             -- the first's tier/weight (twin of the fixed Go mergeMatches bug). The
             -- \31 (unit separator) can't appear in a rule/namespace token.
             local key = "y:" .. (m.namespace or "") .. "\31" .. m.rule
-            -- yarad allowlist: a known-FP rule demoted to log-only. Keep it
+            -- strixd allowlist: a known-FP rule demoted to log-only. Keep it
             -- visible but route to the 0-weight symbol instead of a scoring tier.
-            if type(m.meta) == "table" and m.meta.yarad_allow == "1" then
+            if type(m.meta) == "table" and m.meta.mailstrix_allow == "1" then
               add(settings.allow_symbol, opt, key, 1.0)
             else
               -- Modulate within the tier by the rule's meta.score (1.0 if absent).
@@ -464,7 +464,7 @@ if settings.token_file and settings.token_file ~= "" then
   end
 end
 if settings.token == "" then
-  rspamd_logger.warnx(rspamd_config, "%s: no token set (token/token_file); yarad will refuse all scans", N)
+  rspamd_logger.warnx(rspamd_config, "%s: no token set (token/token_file); strixd will refuse all scans", N)
 elseif settings.token == "change-me" then
   rspamd_logger.warnx(rspamd_config, "%s: token is the placeholder 'change-me'; set a real shared secret", N)
 end

@@ -3,7 +3,7 @@ rule Exploit_EquationEditor
     meta:
         description = "OLE2 document with Equation Editor object (CVE-2017-11882 / CVE-2018-0802 attack surface)"
         score       = 50
-        author      = "yarad"
+        author      = "mailstrix"
 
     strings:
         $ole_magic = { D0 CF 11 E0 A1 B1 1A E1 }
@@ -19,7 +19,7 @@ rule Exploit_EquationEditor_MTEF
     meta:
         description = "Equation Editor with MTEF bytecode — likely CVE-2017-11882 exploit"
         score       = 70
-        author      = "yarad"
+        author      = "mailstrix"
 
     strings:
         $ole_magic = { D0 CF 11 E0 A1 B1 1A E1 }

@@ -3,7 +3,7 @@ rule Maldoc_UserForm_Payload : marker
     meta:
         description = "Suspicious strings hidden in VBA UserForm control data"
         score       = 40
-        author      = "yarad"
+        author      = "mailstrix"
 
     strings:
         $marker  = "USERFORM-STRINGS"

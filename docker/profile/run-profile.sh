@@ -38,13 +38,13 @@ print(f"extracted {n} samples", file=sys.stderr)
 PY
 
 echo "→ building profiling image (libyara --enable-profiling + full ruleset)" >&2
-docker build -f docker/profile/Dockerfile.profile -t yarad-profile \
+docker build -f docker/profile/Dockerfile.profile -t strixd-profile \
     --build-arg CACHEBUST="$(date +%s)" . >&2
 
 echo "→ scanning; cost table → $OUT" >&2
-# FAST_MODE=1 in the env mirrors yarad's SCAN_FLAGS_FAST_MODE (PERF-15) so the
+# FAST_MODE=1 in the env mirrors strixd's SCAN_FLAGS_FAST_MODE (PERF-15) so the
 # total cost can be compared with/without the flag.
-docker run --rm -e FAST_MODE="${FAST_MODE:-}" -v "$SAMPLES:/samples:ro" yarad-profile > "$OUT"
+docker run --rm -e FAST_MODE="${FAST_MODE:-}" -v "$SAMPLES:/samples:ro" strixd-profile > "$OUT"
 
 echo "→ top 10 by cost:" >&2
 tail -n +2 "$OUT" | sort -t"$(printf '\t')" -k1,1 -nr | head -10 \

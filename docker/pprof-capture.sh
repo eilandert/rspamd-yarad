@@ -1,11 +1,11 @@
 #!/bin/sh
 # pprof-capture.sh — capture a baseline set of pprof profiles from a running
-# yarad under load, for PERF-* work (alloc/CPU hot-path tuning). yarad must be
-# started with YARAD_PPROF=1; if it also runs YARAD_METRICS_AUTH=1, pass the
-# token in YARAD_TOKEN so the /debug/pprof gate lets us in.
+# strixd under load, for PERF-* work (alloc/CPU hot-path tuning). strixd must be
+# started with MAILSTRIX_PPROF=1; if it also runs MAILSTRIX_METRICS_AUTH=1, pass the
+# token in MAILSTRIX_TOKEN so the /debug/pprof gate lets us in.
 #
 # Usage:
-#   YARAD_TOKEN=secret ./pprof-capture.sh [base-url] [cpu-seconds] [out-dir]
+#   MAILSTRIX_TOKEN=secret ./pprof-capture.sh [base-url] [cpu-seconds] [out-dir]
 # Defaults: base-url=http://127.0.0.1:8079  cpu-seconds=30  out-dir=./pprof-<ts>
 #
 # Output: cpu.pb.gz, heap.pb.gz, allocs.pb.gz, goroutine.pb.gz + a profiles.txt
@@ -18,10 +18,10 @@ SECS="${2:-30}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${3:-./pprof-$TS}"
 
-# Auth header only when a token is supplied (matches YARAD_METRICS_AUTH=1).
+# Auth header only when a token is supplied (matches MAILSTRIX_METRICS_AUTH=1).
 AUTH=""
-if [ -n "${YARAD_TOKEN:-}" ]; then
-	AUTH="Authorization: Bearer ${YARAD_TOKEN}"
+if [ -n "${MAILSTRIX_TOKEN:-}" ]; then
+	AUTH="Authorization: Bearer ${MAILSTRIX_TOKEN}"
 fi
 
 mkdir -p "$OUT"

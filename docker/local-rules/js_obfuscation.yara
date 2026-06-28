@@ -27,7 +27,7 @@
 rule JS_Obfusc_StringConcat_Accumulate : javascript obfuscation heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "JS payload built by thousands of self-concatenating assignments (salmon-style string-concat obfuscator)"
         reference   = "MalwareBazaar live .js corpus 2024-2026"
         score       = "60"
@@ -52,7 +52,7 @@ rule JS_Obfusc_StringConcat_Accumulate : javascript obfuscation heuristic suspic
 rule JS_Dropper_CharCodeArray_ActiveX : javascript dropper heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "JS additive-cipher dropper: int-array decoded via fromCharCode((n - K + 256) % 256) to rebuild ActiveXObject/WScript.Run at runtime"
         reference   = "MalwareBazaar live .js corpus 2024-2026"
         score       = "65"
@@ -79,7 +79,7 @@ rule JS_Dropper_CharCodeArray_ActiveX : javascript dropper heuristic suspicious
 rule JS_Dropper_XorArray_ActiveX : javascript dropper heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "JS XOR-array dropper: int-array decoded via fromCharCode(arr[i] ^ key.charCodeAt(i % len)) to rebuild ActiveXObject at runtime"
         reference   = "MalwareBazaar live .js corpus 2026 (a630ae17… 0-hit miss)"
         score       = "65"

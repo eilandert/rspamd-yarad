@@ -1,0 +1,74 @@
+# strixd.cf — SpamAssassin rules + config for the Mailstrix plugin.
+#
+# Project: https://github.com/eilandert/mailstrix
+# Plugin:  Mailstrix.pm (loaded via strixd.pre)
+#
+# Copy into SpamAssassin's config dir and edit the connection settings below.
+
+# ---------------------------------------------------------------------------
+# Connection / behaviour (see Mailstrix.pm for every knob and its default).
+# ---------------------------------------------------------------------------
+
+# Transport: 'http' (the plugin POSTs the message itself — rich verdict, fires
+# MAILSTRIX_HIGH on a confident hit) or 'shellout' (pipe to the strix-scan client —
+# hit/no-hit only, reuses one audited binary).
+mailstrix_mode              http
+
+# Central `strixd serve` (http mode).
+mailstrix_url               http://strixd.internal:8079
+
+# Shared secret file. chmod 0440, owned by the SpamAssassin/amavis user. Leave
+# unset for a token-less strixd.
+# mailstrix_token_file      /etc/spamassassin/strixd.token
+
+# shellout mode: the lean CGO-free client (same binary the Sieve path ships).
+# mailstrix_scan_bin        /usr/local/bin/strix-scan
+
+# Per-request timeout (seconds) and the largest message we bother sending.
+mailstrix_timeout           10
+mailstrix_max_size          8388608
+
+# Fail open (1): a strixd outage is treated as clean, never tagging mail. Set 0
+# to fire MAILSTRIX_ERROR on a backend failure instead.
+mailstrix_fail_open         1
+
+# http mode: a matched rule whose meta.score (0..100) is >= this also fires
+# MAILSTRIX_HIGH, so a confident malware hit can score harder than a soft one.
+mailstrix_high_score        75
+
+# ---------------------------------------------------------------------------
+# Rules. Tune the scores to taste; YARA malware hits are high-confidence, so a
+# match alone should normally push a message well over the spam threshold.
+# ---------------------------------------------------------------------------
+
+# Any YARA rule fired on the message.
+header   MAILSTRIX            eval:check_mailstrix()
+describe MAILSTRIX            Message matched a YARA malware rule (strixd)
+score    MAILSTRIX            5.0
+
+# A high-confidence hit (meta.score >= mailstrix_high_score). http mode only —
+# stacks on top of MAILSTRIX, so a confident match scores MAILSTRIX + MAILSTRIX_HIGH.
+header   MAILSTRIX_HIGH       eval:check_mailstrix_high()
+describe MAILSTRIX_HIGH       High-confidence YARA malware rule matched (strixd)
+score    MAILSTRIX_HIGH       5.0
+
+# The strixd backend was unreachable and fail-open is off. Score it low/zero —
+# this is an operational signal, not a spam signal.
+header   MAILSTRIX_ERROR      eval:check_mailstrix_error()
+describe MAILSTRIX_ERROR      strixd backend unreachable (fail-closed)
+score    MAILSTRIX_ERROR      0.01
+
+# Record which YARA rules fired in a header (handy for triage / quarantine
+# routing). _MAILSTRIXRULES_ is a comma-separated list set by the plugin.
+add_header all Yara _MAILSTRIXRULES_
+
+# ---------------------------------------------------------------------------
+# Optional: per-rule scoring. To bump a specific YARA rule, match the header the
+# plugin adds. Example — treat a base64-stuffed PE carve as outright malware:
+#
+#   header   MAILSTRIX_B64PE  X-Spam-Yara =~ /\bBase64_Stuffed_PE\b/
+#   describe MAILSTRIX_B64PE  strixd carved a base64-stuffed PE
+#   score    MAILSTRIX_B64PE  3.0
+#
+# (Requires `add_header all Yara` above so the X-Spam-Yara header exists.)
+# ---------------------------------------------------------------------------

@@ -1,0 +1,16 @@
+# /etc/dovecot/strix-scan.conf — config for strix-scan-wrapper.
+# Sourced by the wrapper as a POSIX-sh fragment. Copy to /etc/dovecot/ and edit.
+
+# The lean client binary (download from the strixd GitHub release: strix-scan-linux-amd64).
+MAILSTRIX_SCAN_BIN=/usr/local/bin/strix-scan
+
+# Base URL of the central `strixd serve`.
+MAILSTRIX_URL=http://strixd.internal:8079
+
+# File holding the shared secret (must equal the server's MAILSTRIX_TOKEN).
+# Use a file, never an inline -token: it would show up in `ps`.
+# chmod 0440, owned by the dovecot/vmail user.
+MAILSTRIX_TOKEN_FILE=/etc/dovecot/strixd.token
+
+# Per-request HTTP timeout.
+MAILSTRIX_TIMEOUT=10s

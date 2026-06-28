@@ -1,4 +1,4 @@
-/* PERF-12 profiling harness — compile the full yarad ruleset with a
+/* PERF-12 profiling harness — compile the full strixd ruleset with a
  * YR_PROFILING_ENABLED libyara, scan every live sample on ONE scanner so cost
  * accumulates, then dump per-rule cost (descending). Mirrors compile-rules.sh
  * external-variable defaults so the same rule set compiles. */
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
   YR_SCANNER *sc;
   if (yr_scanner_create(rules, &sc) != ERROR_SUCCESS) { fprintf(stderr, "scanner_create\n"); return 1; }
   yr_scanner_set_callback(sc, cb, NULL);
-  /* PERF-15: mirror yarad's SCAN_FLAGS_FAST_MODE when FAST_MODE=1 in the env, so
+  /* PERF-15: mirror strixd's SCAN_FLAGS_FAST_MODE when FAST_MODE=1 in the env, so
    * the cost table can be compared with/without the flag. Default OFF keeps the
    * rule-cost numbers (PERF-12) directly comparable across runs. */
   const char *fm = getenv("FAST_MODE");
@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     yr_scanner_set_flags(sc, SCAN_FLAGS_FAST_MODE);
     fprintf(stderr, "FAST_MODE enabled (SCAN_FLAGS_FAST_MODE)\n");
   }
-  /* match yarad scan-time externals (define on scanner; constant across run) */
+  /* match strixd scan-time externals (define on scanner; constant across run) */
   yr_scanner_define_string_variable(sc, "filepath", "");
   yr_scanner_define_string_variable(sc, "filename", "");
   yr_scanner_define_string_variable(sc, "extension", "");

@@ -1,42 +1,42 @@
-# yarad — YARA malware scanning for rspamd
+# strixd — YARA malware scanning for rspamd
 
-[![CI](https://github.com/eilandert/rspamd-yarad/actions/workflows/ci.yml/badge.svg)](https://github.com/eilandert/rspamd-yarad/actions/workflows/ci.yml)
-[![Release](https://github.com/eilandert/rspamd-yarad/actions/workflows/release.yml/badge.svg)](https://github.com/eilandert/rspamd-yarad/actions/workflows/release.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/eilandert/rspamd-yarad.svg)](https://pkg.go.dev/github.com/eilandert/rspamd-yarad)
+[![CI](https://github.com/eilandert/mailstrix/actions/workflows/ci.yml/badge.svg)](https://github.com/eilandert/mailstrix/actions/workflows/ci.yml)
+[![Release](https://github.com/eilandert/mailstrix/actions/workflows/release.yml/badge.svg)](https://github.com/eilandert/mailstrix/actions/workflows/release.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/eilandert/mailstrix.svg)](https://pkg.go.dev/github.com/eilandert/mailstrix)
 
-**yarad is a small HTTP service that scans email for malware with
+**strixd is a small HTTP service that scans email for malware with
 [YARA](https://virustotal.github.io/yara/).** You hand it a message (or one
 attachment) on `POST /scan`; it runs ~10,000 curated public YARA rules over it
 and tells you which ones matched. It ships as a ready-to-run Docker image with
 the rules already baked in — see **[Quick start](#quick-start)** below or pull it
-straight from **[Docker Hub](https://hub.docker.com/r/eilandert/rspamd-yarad)**.
+straight from **[Docker Hub](https://hub.docker.com/r/eilandert/mailstrix)**.
 
 **Why YARA, in one paragraph.** YARA is the rule engine malware analysts use to
 recognise *families* of malicious files — booby-trapped Office docs, packed
 executables, phishing kits, script droppers. A plain string signature dies the
 moment the author edits one byte; a YARA rule matches the *shape* of a file (PE
-imports, section entropy, embedded magic) and survives the next variant. yarad
+imports, section entropy, embedded magic) and survives the next variant. strixd
 compiles those rules — libyara modules and all — and runs them over your mail.
 
 **Four ways to plug it into a mail server, all shipped in this repo:**
 
 - **rspamd** — an async `yara.lua` plugin ([`contrib/rspamd/`](contrib/rspamd/)) POSTs each
-  message/part to yarad at SMTP time and turns the hits into a spam-score symbol.
-- **SpamAssassin** — the [`Yarad.pm`](contrib/spamassassin/) plugin scans each message
+  message/part to strixd at SMTP time and turns the hits into a spam-score symbol.
+- **SpamAssassin** — the [`Mailstrix.pm`](contrib/spamassassin/) plugin scans each message
   through the same central service and turns a YARA match into a spam-score hit
   ([`contrib/spamassassin/`](contrib/spamassassin/)).
-- **Dovecot / Sieve** — the lean [`yarad-scan`](#thin-client-for-dovecot--sieve-yarad-scan)
+- **Dovecot / Sieve** — the lean [`strix-scan`](#thin-client-for-dovecot--sieve-strix-scan)
   client scans at *delivery* and a Sieve rule quarantines a match
   ([`contrib/sieve/`](contrib/sieve/)).
-- **ICAP** — set `YARAD_ICAP_ADDR` and yarad also speaks ICAP (RFC 3507) so an
+- **ICAP** — set `MAILSTRIX_ICAP_ADDR` and strixd also speaks ICAP (RFC 3507) so an
   ICAP-aware proxy or content-filter (Squid, c-icap) scans REQMOD/RESPMOD bodies
   through the same engine ([ICAP mode](#icap-mode-optional)).
 
 ```
  ┌──────────────────────┐  POST /scan ┌────────────┐    ┌──────────────┐
- │ rspamd  (yara.lua)   │ ─────────▶ │   yarad    │ ─▶ │   libyara    │
+ │ rspamd  (yara.lua)   │ ─────────▶ │   strixd    │ ─▶ │   libyara    │
  │  SpamAssassin / Sieve│ ◀───────── │(Go service)│    │compiled rules│
- │  (yarad-scan) / ICAP │  {matches}  └────────────┘    └──────────────┘
+ │  (strix-scan) / ICAP │  {matches}  └────────────┘    └──────────────┘
  └──────────────────────┘
 ```
 
@@ -48,12 +48,12 @@ compiles those rules — libyara modules and all — and runs them over your mai
 > dropped the obvious spam, scans far less and off the connection's critical path.
 > Which is right depends on your mailflow and goals: scan early at SMTP to *reject*
 > with rspamd's score, or scan late at delivery to *quarantine* a smaller, cleaner
-> stream. yarad supports both; see the [thin client](#thin-client-for-dovecot--sieve-yarad-scan)
+> stream. strixd supports both; see the [thin client](#thin-client-for-dovecot--sieve-strix-scan)
 > and [`contrib/sieve/`](contrib/sieve/) for the delivery-time path.
 
 It runs **out of process**, never inside the MTA worker, because libyara is a C
 library (CGO): in an rspamd worker it would block the event loop and drag a heavy
-C dependency into the mail image. Separate, the caller stays async and yarad can
+C dependency into the mail image. Separate, the caller stays async and strixd can
 be scaled, restarted, or reload its rules on its own. Same shape as the
 [gozer](https://github.com/eilandert/gozer) DCC/Razor/Pyzor backend.
 
@@ -63,7 +63,7 @@ be scaled, restarted, or reload its rules on its own. Same shape as the
 
 - **Scans mail with YARA** — `POST /scan` raw message bytes (or one MIME part),
   get back the matched rules as JSON; the rspamd `yara.lua` plugin
-  ([`contrib/rspamd/`](contrib/rspamd/)) wires the hits into the spam score, or the `yarad-scan`
+  ([`contrib/rspamd/`](contrib/rspamd/)) wires the hits into the spam score, or the `strix-scan`
   client scans at delivery from Dovecot/Sieve ([`contrib/sieve/`](contrib/sieve/)).
 - **Ships ~10k public rules baked in** — YARA-Forge, signature-base, ANY.RUN,
   Didier Stevens, bartblaze, InQuest, CAPEv2, YARAify; precompiled `.yac`, daily refresh.
@@ -99,28 +99,28 @@ be scaled, restarted, or reload its rules on its own. Same shape as the
   rule, olevba suspicious-keyword / VBA-shellcode-API heuristics, LOLBin / WMI /
   PowerShell / anti-analysis intent rules, HTML-smuggling (`data:` URI, embedded
   SVG) detection, and a position-independent-shellcode `GetEIP` prologue rule.
-- **Scales effort under load** — a single 1–10 effort dial (`YARAD_EFFORT`)
+- **Scales effort under load** — a single 1–10 effort dial (`MAILSTRIX_EFFORT`)
   scales decode depth, XLM/PDF clamps, feeds and scan timeout; `auto` sheds a
   level at a time as the admission gate fills and climbs back as it drains.
-- **Speaks ICAP too (optional)** — `YARAD_ICAP_ADDR` adds an RFC 3507
+- **Speaks ICAP too (optional)** — `MAILSTRIX_ICAP_ADDR` adds an RFC 3507
   REQMOD/RESPMOD listener for ICAP-aware proxies, sharing the same scan engine,
   cache and concurrency gate as `/scan`.
 - **Uses the attachment name** — `filename`/`extension` YARA vars from the
-  plugin's `X-YARAD-Filename`, so name-keyed (THOR/Loki) rules fire.
+  plugin's `X-MAILSTRIX-Filename`, so name-keyed (THOR/Loki) rules fire.
 - **Checks abuse.ch feeds (optional)** — URLhaus malware-URL/host lookup (with
   URL defanging), MalwareBazaar attachment-SHA256 lookup, ThreatFox URL/domain
   IOCs, and the Feodo Tracker C&C IP blocklist; all cached, fail-open.
-- **Drops/demotes noisy rules** — `YARAD_RULE_DENYLIST` (suppress) and
-  `YARAD_RULE_ALLOWLIST` (keep but score log-only) without patching upstream.
+- **Drops/demotes noisy rules** — `MAILSTRIX_RULE_DENYLIST` (suppress) and
+  `MAILSTRIX_RULE_ALLOWLIST` (keep but score log-only) without patching upstream.
 - **Caches verdicts** — `SHA256(body)` → matches (LRU+TTL), plus request
   coalescing and an optional shared Redis/Valkey L2, for a high-volume firehose.
 - **Fails open, always** — a scan error, timeout, or libyara panic is reported
   as "no match"; a broken scanner never blocks mail. Bounded concurrency,
   per-scan timeout, body cap, graceful drain on SIGTERM.
-- **Updatable rules without a rebuild** — `yarad fetch-rules` pulls a
+- **Updatable rules without a rebuild** — `strixd fetch-rules` pulls a
   version-matched, sha256-verified compiled bundle into a cache; SIGHUP reloads.
-- **CLI tools** — `yarad scan` (local triage), `yarad extract` (dump what a
-  container carves), `yarad check-rules`, `yarad info`; and `yarad-scan`, a tiny
+- **CLI tools** — `strixd scan` (local triage), `strixd extract` (dump what a
+  container carves), `strixd check-rules`, `strixd info`; and `strix-scan`, a tiny
   CGO-free client for a Dovecot/Sieve box ([`contrib/sieve/`](contrib/sieve/)).
 - **Observable** — `/health`, `/ready`, `/version`, Prometheus `/metrics`
   (scans, matches, cache, per-extractor counters, rule staleness).
@@ -130,36 +130,36 @@ be scaled, restarted, or reload its rules on its own. Same shape as the
 Three ways, pick one:
 
 **Debian/Ubuntu package** (`.deb`, amd64 + arm64) — attached to every
-[release](https://github.com/eilandert/rspamd-yarad/releases/latest):
+[release](https://github.com/eilandert/mailstrix/releases/latest):
 
 ```sh
 # Resolve the latest version + your arch (release assets are version-pinned,
-# e.g. yarad_1.1.1_amd64.deb — the bare latest/download/ path is not).
-VER=$(curl -fsSL https://api.github.com/repos/eilandert/rspamd-yarad/releases/latest \
+# e.g. strixd_1.1.1_amd64.deb — the bare latest/download/ path is not).
+VER=$(curl -fsSL https://api.github.com/repos/eilandert/mailstrix/releases/latest \
         | grep -oP '"tag_name":\s*"v\K[^"]+')
 ARCH=$(dpkg --print-architecture)   # amd64 or arm64
-BASE=https://github.com/eilandert/rspamd-yarad/releases/download/v${VER}
+BASE=https://github.com/eilandert/mailstrix/releases/download/v${VER}
 
-# yarad — the daemon (systemd unit + /etc/yarad/yarad.env config)
-curl -fsSLO "${BASE}/yarad_${VER}_${ARCH}.deb"
-sudo apt install "./yarad_${VER}_${ARCH}.deb"
+# strixd — the daemon (systemd unit + /etc/mailstrix/strixd.env config)
+curl -fsSLO "${BASE}/strixd_${VER}_${ARCH}.deb"
+sudo apt install "./strixd_${VER}_${ARCH}.deb"
 
 # fetch the rolling compiled rule bundle into the cache dir, then start it
-sudo -u yarad yarad fetch-rules -cache-dir /var/cache/yarad   # or drop your own .yar in /var/lib/yarad/rules
-sudoedit /etc/yarad/yarad.env                                 # set YARAD_TOKEN, feeds, …
-sudo systemctl enable --now yarad
+sudo -u strixd strixd fetch-rules -cache-dir /var/cache/mailstrix   # or drop your own .yar in /var/lib/mailstrix/rules
+sudoedit /etc/mailstrix/strixd.env                                 # set MAILSTRIX_TOKEN, feeds, …
+sudo systemctl enable --now strixd
 
-# yarad-scan — the lean CGO-free Sieve/LDA client (no daemon)
-curl -fsSLO "${BASE}/yarad-scan_${VER}_${ARCH}.deb"
-sudo apt install "./yarad-scan_${VER}_${ARCH}.deb"
+# strix-scan — the lean CGO-free Sieve/LDA client (no daemon)
+curl -fsSLO "${BASE}/strix-scan_${VER}_${ARCH}.deb"
+sudo apt install "./strix-scan_${VER}_${ARCH}.deb"
 ```
 
-The daemon package installs a hardened systemd unit (unprivileged `yarad` user,
+The daemon package installs a hardened systemd unit (unprivileged `strixd` user,
 `ProtectSystem=strict`, `NoNewPrivileges`) and a documented
-`/etc/yarad/yarad.env`. State (rules) lives in `/var/lib/yarad`.
+`/etc/mailstrix/strixd.env`. State (rules) lives in `/var/lib/mailstrix`.
 
-**Static binaries** — `yarad-linux-{amd64,arm64}` and
-`yarad-scan-linux-{amd64,arm64}` plus `SHA256SUMS` are on the same release page.
+**Static binaries** — `strixd-linux-{amd64,arm64}` and
+`strix-scan-linux-{amd64,arm64}` plus `SHA256SUMS` are on the same release page.
 
 **Docker** — see [Quick start](#quick-start) below (rules baked in).
 
@@ -168,13 +168,13 @@ The daemon package installs a hardened systemd unit (unprivileged `yarad` user,
 The image already bakes ~10k rules, so a token is all you need:
 
 ```sh
-docker run -d --name yarad \
-    -e YARAD_TOKEN=changeme \
+docker run -d --name strixd \
+    -e MAILSTRIX_TOKEN=changeme \
     -p 8079:8079 \
-    eilandert/rspamd-yarad
+    eilandert/mailstrix
 
 # ask it something:
-printf 'hello' | curl -s -H 'X-YARAD-Token: changeme' \
+printf 'hello' | curl -s -H 'X-MAILSTRIX-Token: changeme' \
     --data-binary @- http://127.0.0.1:8079/scan
 # -> {"matches":[]}
 ```
@@ -182,28 +182,28 @@ printf 'hello' | curl -s -H 'X-YARAD-Token: changeme' \
 To use your own rules instead of the baked bundle:
 
 ```sh
-docker run -d --name yarad \
-    -e YARAD_TOKEN=changeme \
-    -e YARAD_RULES= \
-    -e YARAD_RULES_DIR=/rules \
+docker run -d --name strixd \
+    -e MAILSTRIX_TOKEN=changeme \
+    -e MAILSTRIX_RULES= \
+    -e MAILSTRIX_RULES_DIR=/rules \
     -v "$PWD/myrules:/rules:ro" \
     -p 8079:8079 \
-    eilandert/rspamd-yarad
+    eilandert/mailstrix
 ```
 
 Send an attachment name so name-keyed rules fire (base64 — the name is
 attacker-controlled, encoding it stops header injection):
 
 ```sh
-printf 'MZ...' | curl -s -H 'X-YARAD-Token: changeme' \
-    -H "X-YARAD-Filename: $(printf 'invoice.exe' | base64)" \
+printf 'MZ...' | curl -s -H 'X-MAILSTRIX-Token: changeme' \
+    -H "X-MAILSTRIX-Filename: $(printf 'invoice.exe' | base64)" \
     --data-binary @- http://127.0.0.1:8079/scan
 ```
 
-> **Token is optional but recommended.** Set `YARAD_TOKEN` (or
-> `YARAD_TOKEN_FILE`) and the caller must present the same secret as a `Bearer`
-> header or `X-YARAD-Token`. Leave it unset (or `none`/`0`/`off`) to run an
-> **open** scanner for a trusted private network — yarad logs a loud warning,
+> **Token is optional but recommended.** Set `MAILSTRIX_TOKEN` (or
+> `MAILSTRIX_TOKEN_FILE`) and the caller must present the same secret as a `Bearer`
+> header or `X-MAILSTRIX-Token`. Leave it unset (or `none`/`0`/`off`) to run an
+> **open** scanner for a trusted private network — strixd logs a loud warning,
 > since anyone who can reach the port can submit CPU-costly scans.
 
 The `/scan` reply names the rule **and** its source ruleset file:
@@ -224,53 +224,53 @@ The same binary scans locally — no HTTP, no token — by compiling the rules
 in-process. For one-off triage and pipelines:
 
 ```sh
-yarad scan suspicious.doc            # one file
-yarad scan /var/mail/cur             # a maildir, recursed
-cat msg.eml | yarad scan             # stdin
-yarad scan -json /tmp/quarantine     # machine-readable
+strixd scan suspicious.doc            # one file
+strixd scan /var/mail/cur             # a maildir, recursed
+cat msg.eml | strixd scan             # stdin
+strixd scan -json /tmp/quarantine     # machine-readable
 ```
 
 Exit codes: **0** clean, **1** ≥1 match, **2** usage/load/read error. Other
-helpers share the binary (`yarad help`):
+helpers share the binary (`strixd help`):
 
 ```sh
-yarad check-rules            # compile rules, print the count, non-zero on failure (CI gate)
-yarad extract suspicious.doc # show what the extractor carves (no scan)
-yarad fetch-rules            # update the cached rule bundle from the release
-yarad info                   # build / libyara / loaded-bundle identity
+strixd check-rules            # compile rules, print the count, non-zero on failure (CI gate)
+strixd extract suspicious.doc # show what the extractor carves (no scan)
+strixd fetch-rules            # update the cached rule bundle from the release
+strixd info                   # build / libyara / loaded-bundle identity
 ```
 
 ### Updating rules without rebuilding (`fetch-rules`)
 
 Rules move faster than image rebuilds — and outside Docker you'd otherwise need
-`yarac` + a matching libyara to compile them. `yarad fetch-rules` downloads a
+`yarac` + a matching libyara to compile them. `strixd fetch-rules` downloads a
 prebuilt, version-matched bundle into the cache instead:
 
 ```sh
-yarad fetch-rules -cache-dir /var/cache/yarad
+strixd fetch-rules -cache-dir /var/cache/mailstrix
 ```
 
 It reads a small manifest first and updates only when the published **version**
 is newer; it **refuses** a bundle built against a different **libyara**,
 **verifies the sha256**, and swaps atomically (keeping one `.bak`). On any error
-the current bundle is untouched. Then SIGHUP (or restart) yarad to load it. The
+the current bundle is untouched. Then SIGHUP (or restart) strixd to load it. The
 bundle is published by `docker/generate-rules.sh` (run from cron); point `-url` /
-`YARAD_RULES_URL` at a mirror if not fetching from GitHub.
+`MAILSTRIX_RULES_URL` at a mirror if not fetching from GitHub.
 
-## Thin client for Dovecot / Sieve (`yarad-scan`)
+## Thin client for Dovecot / Sieve (`strix-scan`)
 
-`yarad scan` (above) compiles the rules **in-process**, so it needs libyara and
+`strixd scan` (above) compiles the rules **in-process**, so it needs libyara and
 the rule set on the host that runs it — fine on the scanner box, too heavy for a
-mail-delivery box that should stay thin. **`yarad-scan`** is the answer: a
+mail-delivery box that should stay thin. **`strix-scan`** is the answer: a
 separate, tiny client that links **no CGO / libyara and embeds no rules** — pure
 Go, a ~5 MB static binary you can drop on any mail host. It just reads the
-message (stdin or a file), POSTs it to a central `yarad serve`, and exits on the
+message (stdin or a file), POSTs it to a central `strixd serve`, and exits on the
 verdict — so all the CPU-heavy scanning stays on the central service.
 
 ```sh
 # stdin or a file; exit code carries the verdict:
-yarad-scan -url http://yarad.internal:8079 -token-file /etc/yarad.token - < message
-cat message | yarad-scan -url http://yarad.internal:8079
+strix-scan -url http://strixd.internal:8079 -token-file /etc/strixd.token - < message
+cat message | strix-scan -url http://strixd.internal:8079
 ```
 
 | | |
@@ -282,11 +282,11 @@ cat message | yarad-scan -url http://yarad.internal:8079
 - **Fails open by default** — any transport error, timeout, or non-200 is treated
   as *clean* (exit 0), so a scanner outage never blocks or bounces delivery. Pass
   `-fail-open=false` for interactive triage where a silent miss is worse.
-- **Token** via `-token-file` or `YARAD_TOKEN` — never `-token` on a shared host
+- **Token** via `-token-file` or `MAILSTRIX_TOKEN` — never `-token` on a shared host
   (it shows in `ps`). Redirects are never followed, so the token can't leak to a
   3xx target.
-- **Same wire format** as the rspamd plugin: `X-YARAD-Token` for auth, base64
-  `X-YARAD-Filename` for the attachment name.
+- **Same wire format** as the rspamd plugin: `X-MAILSTRIX-Token` for auth, base64
+  `X-MAILSTRIX-Filename` for the attachment name.
 
 This is the **delivery-time** path from the opinion in the intro: let rspamd drop
 the obvious spam at SMTP, then scan the smaller, cleaner stream with YARA at
@@ -302,52 +302,52 @@ Every setting is an env var and a `serve` CLI flag (flag > env > default).
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `YARAD_HOST` / `YARAD_PORT` | `0.0.0.0` / `8079` | HTTP bind address |
-| `YARAD_TOKEN[_FILE]` | — | shared secret for `/scan` (optional); comma-separated for zero-downtime rotation (e.g. `old,new`); unset / `none` / `0` / `off` ⇒ auth disabled, `/scan` runs **open** (warned at startup) |
-| `YARAD_TOKEN_NEXT[_FILE]` | — | incoming rotation token accepted alongside the primary; append here then migrate clients, then promote to `YARAD_TOKEN` and clear this |
-| `YARAD_RULES_DIR` | `/rules` | dir of `*.yar`/`*.yara` compiled at boot and on SIGHUP |
-| `YARAD_RULES` | — | a precompiled `.yac` bundle; loaded instead of `RULES_DIR` (faster start) |
-| `YARAD_RULES_MAX_AGE` | `0` (off) | seconds; flag rules `stale` (metric + `/ready` body) once older than this. Fail-open: never fails readiness |
-| `YARAD_SCAN_TIMEOUT` | `8` (s) | per-request libyara budget (raw + all extracted streams share it) |
-| `YARAD_BACKEND_TIMEOUT` | `1` (s) | how long to wait for an admission / scan slot |
-| `YARAD_MAX_CONCURRENT` | `auto` (CPU count) | max concurrent libyara scans (CPU gate) |
-| `YARAD_MAX_INFLIGHT` | `auto` (2× concurrent) | max in-flight requests (admission gate); kept above the scan gate so a slow body/Redis can't starve scans |
-| `YARAD_MAX_BODY` | `8388608` (8 MiB) | max request body, in bytes (checked before reading) |
-| `YARAD_EFFORT_MAX` | `10` | effort-tier ceiling (1–10); the hard cap a per-request `X-YARAD-Effort` header can never exceed (DoS guard) |
-| `YARAD_EFFORT` | `= YARAD_EFFORT_MAX` | default effort level when no `X-YARAD-Effort` header is sent (1 = raw + shallowest extraction, max = full depth). Set to `auto` (EFFORT-2) to derive the level from admission-gate pressure — full depth when idle, shedding a level at a time as in-flight scans fill the gate, climbing back as it drains (one level/scan; `yarad_effort_auto_level` gauge tracks it). The level scales real work: decode depth, XLM/PDF clamps, reputation feeds and scan timeout are all wired to the resolved profile (EFFORT-4), so a lower level genuinely does less. |
-| `YARAD_CACHE_TTL` | `3600` (s) | verdict cache TTL; `0` disables caching |
-| `YARAD_CACHE_SIZE` | `65536` | in-memory LRU entries |
-| `YARAD_REDIS_URL` | — | optional shared L2 cache, e.g. `redis://host:6379/6` |
-| `YARAD_REDIS_PREFIX` | `yara:scan:` | Redis key prefix |
-| `YARAD_METRICS_AUTH` | off | require the token for `/metrics` and `/version` (`/health` & `/ready` stay open) |
-| `YARAD_URLHAUS_KEY[_FILE]` | — | abuse.ch Auth-Key; enables the URLhaus malware-URL lookup |
-| `YARAD_URLHAUS_REFRESH` | `21600` (6 h) | URLhaus feed refresh (floor 5 min) |
-| `YARAD_URLHAUS_MAX_URLS` | `64` | max URLs examined per message |
-| `YARAD_MBAZAAR_KEY[_FILE]` | — | abuse.ch Auth-Key (same key); enables the MalwareBazaar hash lookup |
-| `YARAD_MBAZAAR_REFRESH` | `86400` (24 h) | MalwareBazaar feed refresh (floor 5 min) |
-| `YARAD_MBAZAAR_FEED` | full dump | override the feed URL (e.g. the lighter "recent" export) |
-| `YARAD_THREATFOX_KEY[_FILE]` | — | abuse.ch Auth-Key (same key); enables the ThreatFox URL/domain IOC lookup |
-| `YARAD_THREATFOX_REFRESH` | `21600` (6 h) | ThreatFox feed refresh (floor 5 min) |
-| `YARAD_THREATFOX_MAX_URLS` | `64` | max URLs/domains examined per message |
-| `YARAD_FEODO` | off | set `1` to enable the Feodo Tracker C&C IP-blocklist lookup (no key needed) |
-| `YARAD_FEODO_REFRESH` | `21600` (6 h) | Feodo feed refresh (floor 5 min) |
-| `YARAD_BIGFILE_THRESHOLD` | `6291456` (6 MiB) | buffers larger than this scan against the smaller `BIGFILE_RULES` set, not the full bundle (cost gate); markers always use the full set; `0` disables the gate |
-| `YARAD_BIGFILE_RULES` | baked seed | optional `.yac` bundle scanned for oversized buffers; unset ⇒ the baked `local.yac` seed set |
-| `YARAD_RULE_DENYLIST` | `http` | comma-sep rule names to suppress (case-insensitive); set empty to disable |
-| `YARAD_RULE_ALLOWLIST` | — | comma-sep rule names to force log-only (kept + tagged `yarad_allow`); deny wins if in both |
-| `YARAD_ICAP_ADDR` | — (disabled) | TCP address for the optional ICAP listener (RFC 3507), e.g. `:1344`. When set, yarad also accepts REQMOD/RESPMOD from ICAP-aware proxies (Squid, c-icap). Unset = ICAP disabled. No ICAP-level auth; gate by network/firewall. |
-| `YARAD_VERBOSE` | off | log one line per request |
-| `YARAD_LOG_STDOUT` | off | info/access logs to stdout (errors always stderr) |
-| `YARAD_PPROF` | off | enable `/debug/pprof` profiling endpoints (off by default; auth-gated when `YARAD_METRICS_AUTH` is set) |
+| `MAILSTRIX_HOST` / `MAILSTRIX_PORT` | `0.0.0.0` / `8079` | HTTP bind address |
+| `MAILSTRIX_TOKEN[_FILE]` | — | shared secret for `/scan` (optional); comma-separated for zero-downtime rotation (e.g. `old,new`); unset / `none` / `0` / `off` ⇒ auth disabled, `/scan` runs **open** (warned at startup) |
+| `MAILSTRIX_TOKEN_NEXT[_FILE]` | — | incoming rotation token accepted alongside the primary; append here then migrate clients, then promote to `MAILSTRIX_TOKEN` and clear this |
+| `MAILSTRIX_RULES_DIR` | `/rules` | dir of `*.yar`/`*.yara` compiled at boot and on SIGHUP |
+| `MAILSTRIX_RULES` | — | a precompiled `.yac` bundle; loaded instead of `RULES_DIR` (faster start) |
+| `MAILSTRIX_RULES_MAX_AGE` | `0` (off) | seconds; flag rules `stale` (metric + `/ready` body) once older than this. Fail-open: never fails readiness |
+| `MAILSTRIX_SCAN_TIMEOUT` | `8` (s) | per-request libyara budget (raw + all extracted streams share it) |
+| `MAILSTRIX_BACKEND_TIMEOUT` | `1` (s) | how long to wait for an admission / scan slot |
+| `MAILSTRIX_MAX_CONCURRENT` | `auto` (CPU count) | max concurrent libyara scans (CPU gate) |
+| `MAILSTRIX_MAX_INFLIGHT` | `auto` (2× concurrent) | max in-flight requests (admission gate); kept above the scan gate so a slow body/Redis can't starve scans |
+| `MAILSTRIX_MAX_BODY` | `8388608` (8 MiB) | max request body, in bytes (checked before reading) |
+| `MAILSTRIX_EFFORT_MAX` | `10` | effort-tier ceiling (1–10); the hard cap a per-request `X-MAILSTRIX-Effort` header can never exceed (DoS guard) |
+| `MAILSTRIX_EFFORT` | `= MAILSTRIX_EFFORT_MAX` | default effort level when no `X-MAILSTRIX-Effort` header is sent (1 = raw + shallowest extraction, max = full depth). Set to `auto` (EFFORT-2) to derive the level from admission-gate pressure — full depth when idle, shedding a level at a time as in-flight scans fill the gate, climbing back as it drains (one level/scan; `mailstrix_effort_auto_level` gauge tracks it). The level scales real work: decode depth, XLM/PDF clamps, reputation feeds and scan timeout are all wired to the resolved profile (EFFORT-4), so a lower level genuinely does less. |
+| `MAILSTRIX_CACHE_TTL` | `3600` (s) | verdict cache TTL; `0` disables caching |
+| `MAILSTRIX_CACHE_SIZE` | `65536` | in-memory LRU entries |
+| `MAILSTRIX_REDIS_URL` | — | optional shared L2 cache, e.g. `redis://host:6379/6` |
+| `MAILSTRIX_REDIS_PREFIX` | `yara:scan:` | Redis key prefix |
+| `MAILSTRIX_METRICS_AUTH` | off | require the token for `/metrics` and `/version` (`/health` & `/ready` stay open) |
+| `MAILSTRIX_URLHAUS_KEY[_FILE]` | — | abuse.ch Auth-Key; enables the URLhaus malware-URL lookup |
+| `MAILSTRIX_URLHAUS_REFRESH` | `21600` (6 h) | URLhaus feed refresh (floor 5 min) |
+| `MAILSTRIX_URLHAUS_MAX_URLS` | `64` | max URLs examined per message |
+| `MAILSTRIX_MBAZAAR_KEY[_FILE]` | — | abuse.ch Auth-Key (same key); enables the MalwareBazaar hash lookup |
+| `MAILSTRIX_MBAZAAR_REFRESH` | `86400` (24 h) | MalwareBazaar feed refresh (floor 5 min) |
+| `MAILSTRIX_MBAZAAR_FEED` | full dump | override the feed URL (e.g. the lighter "recent" export) |
+| `MAILSTRIX_THREATFOX_KEY[_FILE]` | — | abuse.ch Auth-Key (same key); enables the ThreatFox URL/domain IOC lookup |
+| `MAILSTRIX_THREATFOX_REFRESH` | `21600` (6 h) | ThreatFox feed refresh (floor 5 min) |
+| `MAILSTRIX_THREATFOX_MAX_URLS` | `64` | max URLs/domains examined per message |
+| `MAILSTRIX_FEODO` | off | set `1` to enable the Feodo Tracker C&C IP-blocklist lookup (no key needed) |
+| `MAILSTRIX_FEODO_REFRESH` | `21600` (6 h) | Feodo feed refresh (floor 5 min) |
+| `MAILSTRIX_BIGFILE_THRESHOLD` | `6291456` (6 MiB) | buffers larger than this scan against the smaller `BIGFILE_RULES` set, not the full bundle (cost gate); markers always use the full set; `0` disables the gate |
+| `MAILSTRIX_BIGFILE_RULES` | baked seed | optional `.yac` bundle scanned for oversized buffers; unset ⇒ the baked `local.yac` seed set |
+| `MAILSTRIX_RULE_DENYLIST` | `http` | comma-sep rule names to suppress (case-insensitive); set empty to disable |
+| `MAILSTRIX_RULE_ALLOWLIST` | — | comma-sep rule names to force log-only (kept + tagged `mailstrix_allow`); deny wins if in both |
+| `MAILSTRIX_ICAP_ADDR` | — (disabled) | TCP address for the optional ICAP listener (RFC 3507), e.g. `:1344`. When set, strixd also accepts REQMOD/RESPMOD from ICAP-aware proxies (Squid, c-icap). Unset = ICAP disabled. No ICAP-level auth; gate by network/firewall. |
+| `MAILSTRIX_VERBOSE` | off | log one line per request |
+| `MAILSTRIX_LOG_STDOUT` | off | info/access logs to stdout (errors always stderr) |
+| `MAILSTRIX_PPROF` | off | enable `/debug/pprof` profiling endpoints (off by default; auth-gated when `MAILSTRIX_METRICS_AUTH` is set) |
 
-**Reload rules:** `docker kill -s HUP yarad` recompiles in place and flushes the
+**Reload rules:** `docker kill -s HUP strixd` recompiles in place and flushes the
 cache. A reload that fails to compile keeps the previous (working) rules — a bad
-edit can't disarm a running scanner. On SIGTERM/SIGINT yarad drains (`/ready` →
+edit can't disarm a running scanner. On SIGTERM/SIGINT strixd drains (`/ready` →
 `503`, in-flight scans finish) before exiting — safe for rolling updates.
 
 ## Sizing profiles
 
-`YARAD_MAX_CONCURRENT` defaults to the CPU count (`auto`). On a many-core host
+`MAILSTRIX_MAX_CONCURRENT` defaults to the CPU count (`auto`). On a many-core host
 (32+ CPUs) that reserves significant memory. The request-buffer ceiling is set by
 the admission gate, not the scan gate: up to `MAX_INFLIGHT` requests can each hold
 a full body plus its extracted streams, so the startup log estimates peak resident
@@ -355,30 +355,30 @@ as roughly `MAX_INFLIGHT × MAX_BODY + RSS` (the loaded-rules resident set). Siz
 `mem_limit` accordingly and pin `MAX_CONCURRENT`/`MAX_INFLIGHT` explicitly when the
 defaults are too aggressive.
 
-`YARAD_MAX_INFLIGHT` (default `2×MAX_CONCURRENT`) is the admission gate — excess
+`MAILSTRIX_MAX_INFLIGHT` (default `2×MAX_CONCURRENT`) is the admission gate — excess
 requests receive a `503` immediately rather than queuing. Keep it above
 `MAX_CONCURRENT` so a slow body read or Redis round-trip can't starve scan slots.
 
-Redis/Valkey L2 (`YARAD_REDIS_URL`) dramatically improves throughput for repeated
+Redis/Valkey L2 (`MAILSTRIX_REDIS_URL`) dramatically improves throughput for repeated
 attachments, which is common in mail (bulk campaigns, MTA retries, one body to N
 recipients). Without it each scanner instance maintains its own in-process LRU
 only.
 
-| Profile | `YARAD_MAX_CONCURRENT` | `YARAD_MAX_BODY` | `mem_limit` | Redis | Expected p95 | RPS capacity |
+| Profile | `MAILSTRIX_MAX_CONCURRENT` | `MAILSTRIX_MAX_BODY` | `mem_limit` | Redis | Expected p95 | RPS capacity |
 |---------|------------------------|------------------|-------------|-------|-------------|-------------|
 | **Small** — single mailhost, <100 msgs/min | `2` | `10485760` (10 MiB) | `128m` | optional (LRU only) | <500 ms | ~10 |
 | **Medium** — mailhost, 100–1000 msgs/min | `auto` (CPU count) | `26214400` (25 MiB) | `256m` | recommended | <300 ms | ~50 |
 | **Large** — cluster, >1000 msgs/min | `auto` | `26214400` (25 MiB) | `512m`+ | required | <200 ms | ~200+ |
 
 Notes:
-- MalwareBazaar full-dump mode (`YARAD_MBAZAAR_KEY` set) adds ~40 MiB resident
+- MalwareBazaar full-dump mode (`MAILSTRIX_MBAZAAR_KEY` set) adds ~40 MiB resident
   plus a ~100–150 MiB transient spike on refresh — raise `mem_limit` to ~768m in
   that case.
 - For the Large profile, run multiple replicas behind a load balancer rather than
   one container with a very high `MAX_CONCURRENT`: smaller per-container concurrency
   improves tail latency under burst load and avoids one libyara panic taking all
   capacity.
-- `YARAD_BACKEND_TIMEOUT` (default `1s`) caps how long a request waits for an
+- `MAILSTRIX_BACKEND_TIMEOUT` (default `1s`) caps how long a request waits for an
   admission slot. Under sustained overload this is the 503 fuse — keep it short
   so callers (rspamd) fail fast rather than stacking connections.
 
@@ -386,7 +386,7 @@ Notes:
 
 The image bakes eight public rulesets at build time; a daily rebuild
 (`--build-arg CACHEBUST=$(date +%s)`) re-pulls the latest. **Full credit to the
-authors — yarad only packages their work.** Each set keeps its own license:
+authors — strixd only packages their work.** Each set keeps its own license:
 
 | Ruleset | Author / source | License | Notes |
 |---------|-----------------|---------|-------|
@@ -402,7 +402,7 @@ authors — yarad only packages their work.** Each set keeps its own license:
 Roughly 10,000+ rules total. Pin or toggle any source with a build arg
 (`YARAFORGE_SET`, `*_REF`, `DIDIER=0`/`BARTBLAZE=0`/`ANYRUN=0`/`INQUEST=0`/`CAPE=0`/`YARAIFY=0`).
 
-On top of the public sets, yarad bakes its own local heuristics from
+On top of the public sets, strixd bakes its own local heuristics from
 `docker/local-rules/`:
 
 - `Maldoc_AutoExec_Write_Execute` (`maldoc_autoexec.yara`) — an
@@ -467,7 +467,7 @@ compiles).
 ## How it reads documents
 
 Malware in mail mostly arrives as a document that hides its payload where a raw
-byte-scan can't see it. yarad **pre-extracts** the hidden content, then scans
+byte-scan can't see it. strixd **pre-extracts** the hidden content, then scans
 both the raw bytes (format/exploit rules) and each extracted blob (keyword
 rules), merging and de-duplicating matches:
 
@@ -494,13 +494,13 @@ rules), merging and de-duplicating matches:
   objects) and embedded Flash/SWF objects are surfaced as `OLEID-OBJECTPOOL` /
   `OLEID-FLASH` markers and scored by `oleid_indicators.yara`.
 - **Filename/extension externals** — name-keyed rules fire from the plugin's
-  `X-YARAD-Filename`; the name is folded into the verdict cache key.
+  `X-MAILSTRIX-Filename`; the name is folded into the verdict cache key.
 - **URL defanging** — `hxxp`→`http`, `[.]`/`(dot)`→`.` on every buffer before
   the URLhaus lookup; a hit found only after defanging is flagged `_DEOBF`.
 
 Extraction is **best-effort and fail-open**: a non-document, a parse error, an
 encrypted package, or a hostile/poison file (oleparse panics are recovered)
-falls back to a raw-only scan. The whole request shares one `YARAD_SCAN_TIMEOUT`
+falls back to a raw-only scan. The whole request shares one `MAILSTRIX_SCAN_TIMEOUT`
 across raw + every extracted stream, and zip-bomb/quine caps (per-item, total
 bytes, member/depth counts) bound the work, so one document can't monopolize a
 worker. Encrypted (ECMA-376) OOXML is counted but **not** decrypted.
@@ -523,17 +523,17 @@ deep-scan scorer.
 Set a free [abuse.ch Auth-Key](https://auth.abuse.ch/) to add live reputation,
 on top of the YARA rules:
 
-- **URLhaus** (`YARAD_URLHAUS_KEY`) — checks every message and extracted stream
+- **URLhaus** (`MAILSTRIX_URLHAUS_KEY`) — checks every message and extracted stream
   against the known malware-URL feed. Hits: `URLHAUS_MALWARE_URL` (exact),
   `URLHAUS_MALWARE_HOST`, `_DEOBF` variant; matched URL in `meta.url`.
-- **MalwareBazaar** (`YARAD_MBAZAAR_KEY`, same key) — checks each attachment's
+- **MalwareBazaar** (`MAILSTRIX_MBAZAAR_KEY`, same key) — checks each attachment's
   SHA256 against the known-malware corpus. Hit: `MALWAREBAZAAR_MALWARE`, digest
   in `meta.sha256`.
-- **ThreatFox** (`YARAD_THREATFOX_KEY`, same key) — checks URLs/domains in every
+- **ThreatFox** (`MAILSTRIX_THREATFOX_KEY`, same key) — checks URLs/domains in every
   message and stream against the ThreatFox IOC feed. Hits: `THREATFOX_IOC_URL`,
   `_DOMAIN`, `_DEOBF`; matched URL in `meta.url`. Routes to the `THREATFOX_IOC`
   symbol.
-- **Feodo Tracker** (`YARAD_FEODO=1`, opt-in) — checks each URL's host IP against
+- **Feodo Tracker** (`MAILSTRIX_FEODO=1`, opt-in) — checks each URL's host IP against
   the botnet C&C blocklist. Hits: `FEODO_CC_IP`, `_DEOBF`; IP in `meta.ip`, URL
   in `meta.url`. Routes to the `FEODO_CC_IP` symbol.
 
@@ -545,19 +545,19 @@ raise the container `mem_limit` (~768m) when enabling it.
 
 ## ICAP mode (optional)
 
-yarad can run as an ICAP server alongside the HTTP `/scan` endpoint, making it
+strixd can run as an ICAP server alongside the HTTP `/scan` endpoint, making it
 usable as a drop-in content-scanning service for ICAP-aware proxies (Squid,
 c-icap, traffic proxies, MTA content-filters).
 
 ### Enabling
 
 ```bash
-docker run ... -e YARAD_ICAP_ADDR=:1344 ...
+docker run ... -e MAILSTRIX_ICAP_ADDR=:1344 ...
 ```
 
 The ICAP listener starts on `:1344` (IANA ICAP port). The HTTP `/scan` server
-continues to run on `YARAD_PORT` alongside it. Both share the same scan engine,
-verdict cache, and concurrency budget (`YARAD_MAX_INFLIGHT`).
+continues to run on `MAILSTRIX_PORT` alongside it. Both share the same scan engine,
+verdict cache, and concurrency budget (`MAILSTRIX_MAX_INFLIGHT`).
 
 **No ICAP-level authentication.** Gate the port by firewall/network; only
 trusted proxies should reach it (a startup warning is emitted when enabled,
@@ -578,38 +578,38 @@ mirroring the `/scan` open-mode warning).
 | Clean (0 matches) + `Allow: 204` sent by proxy | `204 No Modification` (proxy serves original) |
 | Clean (0 matches), no `Allow: 204` | `200 OK` with echo-back of original |
 | Infected (≥1 match) | `200 OK` with replacement `403 Forbidden` body + `X-Infection-Found` and `X-Violations-Found` headers naming the matched rules |
-| Body exceeds `YARAD_MAX_BODY` | `413 Request Entity Too Large` |
+| Body exceeds `MAILSTRIX_MAX_BODY` | `413 Request Entity Too Large` |
 | Scan engine error | fail-open → `204 No Modification` (mirrors `/scan` fail-open) |
 
 ### Squid example
 
 ```
 icap_enable on
-icap_service yarad_req reqmod_precache bypass=1 icap://yarad:1344/scan
-icap_service yarad_resp respmod_precache bypass=1 icap://yarad:1344/scan
-adaptation_access yarad_req allow all
-adaptation_access yarad_resp allow all
+icap_service mailstrix_req reqmod_precache bypass=1 icap://strixd:1344/scan
+icap_service mailstrix_resp respmod_precache bypass=1 icap://strixd:1344/scan
+adaptation_access mailstrix_req allow all
+adaptation_access mailstrix_resp allow all
 ```
 
 ### Metrics
 
-When `YARAD_ICAP_ADDR` is set, three additional counters appear in `/metrics`:
-- `yarad_icap_requests_total` — REQMOD/RESPMOD requests served
-- `yarad_icap_infected_total` — requests with ≥1 rule match (403 sent)
-- `yarad_icap_options_total` — OPTIONS requests served
+When `MAILSTRIX_ICAP_ADDR` is set, three additional counters appear in `/metrics`:
+- `mailstrix_icap_requests_total` — REQMOD/RESPMOD requests served
+- `mailstrix_icap_infected_total` — requests with ≥1 rule match (403 sent)
+- `mailstrix_icap_options_total` — OPTIONS requests served
 
 ## Observability (Grafana + Prometheus)
 
 `/metrics` is Prometheus exposition format (counters + gauges, no auth unless
-`YARAD_METRICS_AUTH=1`). Ready-to-import artifacts live in
+`MAILSTRIX_METRICS_AUTH=1`). Ready-to-import artifacts live in
 [`contrib/deploy/`](contrib/deploy/):
 
-- **[`contrib/deploy/grafana/yarad-dashboard.json`](contrib/deploy/grafana/yarad-dashboard.json)**
+- **[`contrib/deploy/grafana/strixd-dashboard.json`](contrib/deploy/grafana/strixd-dashboard.json)**
   — a dashboard with the request path (scans/matches/errors/busy), cache hit
   ratio, libyara scan channels (raw/stream/marker/bigfile), extraction by
   carrier, rule reloads, ruleset age/staleness, abuse.ch feed lookups/hits, and
   the auto effort level. Import it and pick your Prometheus datasource.
-- **[`contrib/deploy/prometheus/yarad-alerts.yml`](contrib/deploy/prometheus/yarad-alerts.yml)**
+- **[`contrib/deploy/prometheus/strixd-alerts.yml`](contrib/deploy/prometheus/strixd-alerts.yml)**
   — alert rules: daemon down, zero rules loaded, stale ruleset, reload failing,
   high scan-error / busy rate, feed-refresh failures. Reference it from
   `rule_files:` in `prometheus.yml`.
@@ -618,27 +618,27 @@ Minimal scrape config:
 
 ```yaml
 scrape_configs:
-  - job_name: yarad
+  - job_name: strixd
     static_configs:
-      - targets: ['yarad:8079']
+      - targets: ['strixd:8079']
 ```
 
 ## Kubernetes (Helm)
 
 A Helm chart lives at
-[`contrib/deploy/helm/yarad/`](contrib/deploy/helm/yarad/) — a single Deployment
+[`contrib/deploy/helm/strixd/`](contrib/deploy/helm/strixd/) — a single Deployment
 + ClusterIP Service (internal scan backend, no Ingress by design), mirroring the
 Docker compose security posture (nonroot, read-only rootfs, drop ALL caps,
 RuntimeDefault seccomp). It wires the token + abuse.ch key from a Secret
 (`--set token.value=…` or `token.existingSecret`), exposes the optional
-`YARAD_*` tunables under `config:`, and can emit a Prometheus-Operator
+`MAILSTRIX_*` tunables under `config:`, and can emit a Prometheus-Operator
 `ServiceMonitor` (`--set serviceMonitor.enabled=true`) scraping the same
 `/metrics` the dashboard/alerts above consume. Replicas > 1 want
 `redis.url` for a shared verdict cache. See the
-[chart README](contrib/deploy/helm/yarad/README.md) for the values table.
+[chart README](contrib/deploy/helm/strixd/README.md) for the values table.
 
 ```sh
-helm install yarad ./contrib/deploy/helm/yarad --set token.value=$(openssl rand -hex 16)
+helm install strixd ./contrib/deploy/helm/strixd --set token.value=$(openssl rand -hex 16)
 ```
 
 ## Wiring it into rspamd
@@ -646,7 +646,7 @@ helm install yarad ./contrib/deploy/helm/yarad --set token.value=$(openssl rand 
 The [`contrib/rspamd/`](contrib/rspamd/) directory has everything the rspamd side needs:
 
 - [`plugins/yara.lua`](contrib/rspamd/plugins/yara.lua) — the async plugin that POSTs to
-  yarad and classifies each matched rule into a scoring tier:
+  strixd and classifies each matched rule into a scoring tier:
 
   | symbol | tier | default weight |
   |--------|------|----------------|
@@ -661,7 +661,7 @@ The [`contrib/rspamd/`](contrib/rspamd/) directory has everything the rspamd sid
   | `FEODO_CC_IP` | URL host IP on the Feodo C&C blocklist (option = the IP) | `8.0` |
 
   Tiers stack, capped by the group `max_score`. The classifier lives in the
-  plugin, so retuning is just an rspamd reload (no yarad rebuild).
+  plugin, so retuning is just an rspamd reload (no strixd rebuild).
 - [`rspamd.conf.local`](contrib/rspamd/rspamd.conf.local) — how to load a custom lua
   module (inline `yara { }` block + explicit `lua =` include).
 - [`local.d/groups.conf`](contrib/rspamd/local.d/groups.conf) — the per-tier weights.
@@ -674,10 +674,10 @@ detector) — CI fails on a bad commit before any image is published:
 
 ```sh
 # unit tests + go vet, against the same statically-linked libyara as production:
-docker build --target test -f docker/Dockerfile -t yarad-test .
+docker build --target test -f docker/Dockerfile -t strixd-test .
 
 # the production image (distroless, nonroot, ~89 MB):
-docker build --target final -f docker/Dockerfile -t eilandert/rspamd-yarad \
+docker build --target final -f docker/Dockerfile -t eilandert/mailstrix \
     --build-arg CACHEBUST=$(date +%s) .
 ```
 
@@ -715,12 +715,12 @@ sha256sum -c SHA256SUMS --ignore-missing
 - [x] oleid structural indicators: `OLEID-OBJECTPOOL` (embedded OLE objects) + `OLEID-FLASH` (SWF) markers → `oleid_indicators.yara`
 - [x] oleid DOC_SECURITY: `SummaryInformation` PIDSI 0x13 bitfield → `OLE-DOC-SECURITY-<n>` marker + `OLE_Doc_Security` rule
 - [x] CFB extra-data carve: non-zero payload appended past the last FAT-allocated sector → `OLE2-EXTRA-DATA` marker + trailing blob carved for content rules
-- [x] Filename/extension externals (name-keyed rules) via `X-YARAD-Filename`
+- [x] Filename/extension externals (name-keyed rules) via `X-MAILSTRIX-Filename`
 - [x] URL defang + URLhaus URL/host lookup; MalwareBazaar attachment-hash lookup (cached feeds, fail-open)
-- [x] `YARAD_RULE_DENYLIST` (drop) + `YARAD_RULE_ALLOWLIST` (log-only)
+- [x] `MAILSTRIX_RULE_DENYLIST` (drop) + `MAILSTRIX_RULE_ALLOWLIST` (log-only)
 - [x] Tiered scoring (`YARA_MALWARE`/`_EXPLOIT`/`_PHISHING`/`YARA`/`_SUSPICIOUS` + `URLHAUS_MALWARE_URL`)
 - [x] SIGHUP rule reload (atomic swap, keeps old rules on a bad edit); `fetch-rules` out-of-image updates
-- [x] `yarad-scan` lean CGO-free Sieve/LDA client ([`contrib/sieve/`](contrib/sieve/))
+- [x] `strix-scan` lean CGO-free Sieve/LDA client ([`contrib/sieve/`](contrib/sieve/))
 - [x] UserForm hidden-string extraction (carves payload strings from VBA UserForm `o`/`f`/`\x03VBFrame` OLE2 streams; `Maldoc_UserForm_Payload` rule)
 - [x] Document-properties string extraction (OOXML `docProps/`, `customXml/`, `word/settings.xml` docVars; OLE2 `\x05SummaryInformation`; `Maldoc_DocProps_Payload` rule)
 - [x] PE/ELF structural analysis of carved/embedded binaries (`saferwall/pe`, fail-open): section entropy (`PE-SECTION-PACKED` ≥7.2 / `-HIGH-ENTROPY` ≥7.0), `PE-OVERLAY`, `PE-VIRTUAL-SECTION` (FormBook `.ndata`), `PE-DOTNET` (CLR), `PE-ANOMALY`; header-validated `ELF-EXECUTABLE` → `pe_structural.yara`
@@ -731,7 +731,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 - [x] abuse.ch reputation feeds: URLhaus, MalwareBazaar hash, **ThreatFox** IOC (url/domain), **Feodo** C&C IP blocklist (cached, fail-open)
 - [x] Curated CAPEv2 family rules (Guloader/Formbook/AgentTesla/Obfuscar) as an 8th rule source; build-time `SLOW_RULE_DENYLIST` with a bundle guard (never unloads a shared multi-rule file)
 - [x] Distroless, non-root, read-only rootfs (~89 MB)
-- [x] **ICAP server** (RFC 3507) — optional `YARAD_ICAP_ADDR` listener; REQMOD+RESPMOD; shares engine, cache, and concurrency gate with `/scan`; ISTag tracks ruleset fingerprint; fail-open on scan error; `icap_*` Prometheus counters
+- [x] **ICAP server** (RFC 3507) — optional `MAILSTRIX_ICAP_ADDR` listener; REQMOD+RESPMOD; shares engine, cache, and concurrency gate with `/scan`; ISTag tracks ruleset fingerprint; fail-open on scan error; `icap_*` Prometheus counters
 - [x] **Batch echo-redirect dropper carving** — reconstructs VBS/JS/PS1 payloads hidden inside `.bat` echo-redirect droppers (`>"FILE" ( echo … )` / `>>"FILE" echo …`) so existing script keyword rules reach the plaintext; caret-escape unescaping; shared budget/depth bounds; self-gating prefilter (no cost on non-batch input)
 - [x] **JAR / APK member unpacking** — a zip carrying only `META-INF/MANIFEST.MF` (Java `.jar` / Android `.apk`: Adwind/jRAT/STRRAT mail vectors) is now member-unpacked as a plain archive, so its `.class`/`.dex`/nested-jar payloads are scanned instead of being mistaken for an Office document and routed to the macro path; genuine OOXML/ODF (which always carry `[Content_Types].xml`/`mimetype`/`word|xl|ppt/`) are unaffected — zero body-text FP
 
@@ -756,7 +756,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 **Performance / operations**
 
-- [x] **Effort tiers** — config + resolution + cache key + profile struct (EFFORT-1), `YARAD_EFFORT=auto` from admission-gate pressure (EFFORT-2), the rspamd plugin setting `X-YARAD-Effort` from the sender's prior score / auth-failure symbols (EFFORT-3, opt-in via `effort_enabled`), and EFFORT-4 wiring each extraction/scan cap (decode depth, XLM/PDF clamps, reputation feeds, scan timeout) to the resolved profile so the dial actually scales work
+- [x] **Effort tiers** — config + resolution + cache key + profile struct (EFFORT-1), `MAILSTRIX_EFFORT=auto` from admission-gate pressure (EFFORT-2), the rspamd plugin setting `X-MAILSTRIX-Effort` from the sender's prior score / auth-failure symbols (EFFORT-3, opt-in via `effort_enabled`), and EFFORT-4 wiring each extraction/scan cap (decode depth, XLM/PDF clamps, reputation feeds, scan timeout) to the resolved profile so the dial actually scales work
 - [ ] Batch `/scan` endpoint (collapse N part round-trips)
 
 - [x] ThreatFox / Feodo Tracker IOC feeds (domains/IPs)
@@ -783,14 +783,14 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 - **[gozer](https://github.com/eilandert/gozer)** — the DCC/Razor/Pyzor sibling backend this mirrors.
 - **[rspamd-olefy](https://github.com/eilandert/rspamd-olefy)** — the parallel oletools deep-scan scorer.
-- **[SpamAssassin plugin](contrib/spamassassin/)** — scan each message through yarad and score a YARA match.
-- **[Dovecot/Sieve example](contrib/sieve/)** — quarantine a match with the `yarad-scan` client.
-- **Article:** [YARA malware scanning in rspamd](https://deb.myguard.nl/articles/yara-malware-scanning-rspamd-yarad/) — the why and how, on deb.myguard.nl.
-- **Docker Hub:** [`eilandert/rspamd-yarad`](https://hub.docker.com/r/eilandert/rspamd-yarad).
+- **[SpamAssassin plugin](contrib/spamassassin/)** — scan each message through strixd and score a YARA match.
+- **[Dovecot/Sieve example](contrib/sieve/)** — quarantine a match with the `strix-scan` client.
+- **Article:** [YARA malware scanning in rspamd](https://deb.myguard.nl/articles/yara-malware-scanning-mailstrix/) — the why and how, on deb.myguard.nl.
+- **Docker Hub:** [`eilandert/mailstrix`](https://hub.docker.com/r/eilandert/mailstrix).
 
 ## License
 
-yarad itself is [MIT](LICENSE). The baked rule sets are **not** yarad's work and
+strixd itself is [MIT](LICENSE). The baked rule sets are **not** strixd's work and
 keep their own licenses (see the [Rules](#rules) table): signature-base = DRL
 1.1, bartblaze = MIT, InQuest = MIT, Didier Stevens = public domain, ANY.RUN =
 public detection rules, YARA-Forge = aggregate (each rule keeps its upstream

@@ -26,7 +26,7 @@
 rule AnyDesk_Unattended_Access_Abuse : rmm anydesk dropper heuristic malware
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Batch sets AnyDesk unattended-access password silently (RMM-abuse remote access kit)"
         reference   = "https://attack.mitre.org/techniques/T1219/"
         sample      = "12648cd9d425f78db2dbc6e03c14f11e6ac6aadf8b3975c23cce9519e2b58d33"

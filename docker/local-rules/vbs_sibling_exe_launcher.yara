@@ -16,7 +16,7 @@
   ONLY on the stable mechanic literals, never on names.
 
   FP-safety: a legit "launch a sibling exe hidden" wrapper exists on disk, but
-  in the MAIL-ATTACHMENT vector (yarad's domain) a standalone <4 KB VBS that
+  in the MAIL-ATTACHMENT vector (mailstrix's domain) a standalone <4 KB VBS that
   self-locates via GetParentFolderName(ScriptFullName), sets CurrentDirectory
   and Run()s a sibling .exe with window-style 0 / bWaitOnReturn False has no
   benign analogue. The conjunction is 7-way AND under a tiny-file gate, so an
@@ -29,7 +29,7 @@
 rule VBS_Sibling_Exe_Hidden_Launcher : vbs dropper launcher heuristic malware
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Tiny VBS that self-locates and runs a sibling .exe hidden/async (autorun dropper face)"
         reference   = "https://attack.mitre.org/techniques/T1564/003/"
         sample      = "f5952b1650e8d5e9a480c32c8c0b53dd4a14f4cdc320e8949d721f5881955f92"

@@ -20,10 +20,10 @@
       executable memory or install threads; this is the classic VBA-stomping /
       shellcode-runner shape. Higher confidence -> score 60.
 
-  Both run over every buffer yarad scans — crucially the DECOMPRESSED VBA macro
+  Both run over every buffer mailstrix scans — crucially the DECOMPRESSED VBA macro
   stream the extract package surfaces (MS-OVBA), plus raw body / script carriers
   (HTA/WSF/JS) and the single-layer-decoded blobs from decode.go. No VBA external-
-  variable gate (same reasoning as maldoc_autoexec.yara): yarad only sets VBA=1
+  variable gate (same reasoning as maldoc_autoexec.yara): mailstrix only sets VBA=1
   on decompressed macro streams, and gating would miss non-Office droppers and
   make the rules untestable against a raw buffer. This is keyword heuristics, NOT
   emulation — Chr() concat chains, XLM/Excel-4.0 execution and multi-stage
@@ -37,7 +37,7 @@
 rule Maldoc_Suspicious_VBA_Keywords : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Macro/script combines many suspicious VBA keywords (olevba-style count heuristic)"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "25"
@@ -87,7 +87,7 @@ rule Maldoc_Suspicious_VBA_Keywords : maldoc heuristic suspicious
 rule Maldoc_VBA_Shellcode_API : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "VBA Declare of a Win32 API combined with a process-injection/shellcode primitive"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "60"

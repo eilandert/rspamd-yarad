@@ -1,0 +1,94 @@
+# Prometheus alerting rules for strixd. Load via rule_files: in prometheus.yml.
+# Metric names match strixd's /metrics exposition (see internal/strixd/server.go).
+# Scrape config (add to prometheus.yml):
+#   - job_name: strixd
+#     static_configs: [{ targets: ['strixd:8079'] }]
+#   (set MAILSTRIX_METRICS_AUTH=0, or add authorization: with the token.)
+groups:
+  - name: strixd
+    rules:
+      # --- availability ---
+      - alert: MailstrixDown
+        expr: up{job="strixd"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "strixd target {{ $labels.instance }} is down"
+          description: "Prometheus cannot scrape strixd for >2m. Mail malware scanning is offline."
+
+      - alert: MailstrixNoRulesLoaded
+        expr: mailstrix_rules == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "strixd has zero rules loaded"
+          description: "mailstrix_rules=0 — the daemon is up but scanning nothing. Rule load/compile failed."
+
+      # --- rule freshness (catches a silently-broken daily rebuild) ---
+      - alert: MailstrixRulesStale
+        expr: mailstrix_rules_stale == 1
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "strixd ruleset is stale"
+          description: "Loaded ruleset age exceeds MAILSTRIX_RULES_MAX_AGE. The daily fetch/rebuild likely stopped updating."
+
+      - alert: MailstrixReloadFailing
+        expr: increase(mailstrix_reload_failure_total[1h]) > 0
+        for: 0m
+        labels: { severity: warning }
+        annotations:
+          summary: "strixd rule reload failed"
+          description: "A SIGHUP/boot reload failed to compile in the last hour; the previous rule set is kept."
+
+      # --- health of the scan path ---
+      - alert: MailstrixHighScanErrorRate
+        expr: |
+          sum(rate(mailstrix_errors_total[5m]))
+            / clamp_min(sum(rate(mailstrix_scans_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "strixd scan error rate >5%"
+          description: "Over 5% of /scan requests are erroring (scan/read/length). Check libyara timeouts and rule health."
+
+      - alert: MailstrixRawScanErrors
+        expr: increase(mailstrix_raw_scan_errs_total[10m]) > 0
+        for: 0m
+        labels: { severity: info }
+        annotations:
+          summary: "strixd raw scans falling through to extraction"
+          description: "Raw libyara scans are timing out/erroring and falling back to extraction — possible rule/perf regression."
+
+      # --- backpressure / capacity ---
+      - alert: MailstrixHighBusyRate
+        expr: |
+          sum(rate(mailstrix_busy_total[5m]))
+            / clamp_min(sum(rate(mailstrix_scans_total[5m]) + rate(mailstrix_busy_total[5m])), 0.001) > 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "strixd rejecting >10% of requests (concurrency gate)"
+          description: "The admission gate is shedding load. Raise MAILSTRIX_MAX_INFLIGHT, scale out, or lower effort."
+
+      # --- feed freshness (only meaningful when the feed is enabled) ---
+      - alert: MailstrixFeedRefreshFailing
+        expr: |
+          increase(mailstrix_urlhaus_refresh_failures_total[2h]) > 0
+            or increase(mailstrix_malwarebazaar_refresh_failures_total[2h]) > 0
+        for: 0m
+        labels: { severity: info }
+        annotations:
+          summary: "strixd abuse.ch feed refresh failing"
+          description: "An enabled abuse.ch feed (URLhaus/MalwareBazaar/…) has failed to refresh for 2h; lookups use stale data (fail-open)."
+
+      # --- ICAP (only meaningful when MAILSTRIX_ICAP_ADDR is set; counters stay 0 otherwise) ---
+      - alert: MailstrixICAPHighInfectionRate
+        expr: |
+          sum(rate(mailstrix_icap_infected_total[15m]))
+            / clamp_min(sum(rate(mailstrix_icap_requests_total[15m])), 0.001) > 0.20
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "strixd ICAP infection rate >20%"
+          description: "Over 20% of ICAP REQMOD/RESPMOD requests matched a rule (403 sent) for 15m. Expected during an outbreak; otherwise check for a noisy/false-positive rule."

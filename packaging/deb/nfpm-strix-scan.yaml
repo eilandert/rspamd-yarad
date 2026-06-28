@@ -1,0 +1,25 @@
+# nfpm config for the strix-scan client .deb (lean, CGO-free Sieve/LDA client).
+#   stage the binary to dist/strix-scan, then
+#   VERSION=1.1.0 ARCH=amd64 nfpm pkg -f nfpm-strix-scan.yaml -p deb
+# See nfpm-strixd.yaml for why the src path is fixed, not ${ARCH}-templated.
+name: strix-scan
+arch: ${ARCH}
+version: ${VERSION}
+version_schema: none
+section: mail
+priority: optional
+maintainer: eilandert <eilander@myguard.nl>
+description: |
+  strix-scan — Sieve/LDA client for the strixd daemon
+  Lean CGO-free command-line client that POSTs a message to a strixd daemon's
+  /scan endpoint and exits with a verdict code. Drop-in for Sieve external
+  programs, Dovecot LDA pipes and shell integrations.
+homepage: https://github.com/eilandert/mailstrix
+license: MIT
+depends:
+  - libc6
+contents:
+  - src: dist/strix-scan
+    dst: /usr/bin/strix-scan
+    file_info:
+      mode: 0755

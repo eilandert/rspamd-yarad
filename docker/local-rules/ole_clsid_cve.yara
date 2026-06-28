@@ -6,7 +6,7 @@
   CLSID byte order (OLE LE wire / GUID serialisation):
     Data1 (DWORD) LE | Data2 (WORD) LE | Data3 (WORD) LE | Data4 (8 bytes) BE
 
-  These rules fire on the raw scan surface yarad presents to YARA — the
+  These rules fire on the raw scan surface mailstrix presents to YARA — the
   decompressed/extracted streams from CFB (OLE2) files, the raw RTF body, and
   OOXML ZIP entries. The binary form covers OLE2 directory entries and embedded-
   object headers; the hex form covers RTF \objdata. Both are highly specific
@@ -37,7 +37,7 @@
 rule OLE_ShellExplorer_CLSID : maldoc exploit cve
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Shell.Explorer CLSID {EAB22AC3-…} in OLE2/RTF/OOXML — CVE-2026-21509 IE WebBrowser exploit lure"
         reference   = "https://www.cve.org/CVERecord?id=CVE-2026-21509"
         score       = "70"

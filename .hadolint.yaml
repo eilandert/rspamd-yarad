@@ -1,4 +1,4 @@
-# hadolint config for the yarad image.
+# hadolint config for the strixd image.
 ignored:
   # DL3008 (pin apt versions): deliberately NOT pinned. The image is rebuilt
   # daily for the latest security updates; pinning would freeze CVEs in place.

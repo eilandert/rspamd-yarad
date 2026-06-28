@@ -1,4 +1,4 @@
-# Release. On a v* tag, build the yarad binary for amd64 + arm64 (CGO against the
+# Release. On a v* tag, build the strixd binary for amd64 + arm64 (CGO against the
 # statically-linked libyara, exactly as the production image does) and attach
 # both to a GitHub release. Binaries are dynamically linked against glibc/libssl/
 # libz/libzstd; the static bit is libyara itself.
@@ -48,9 +48,9 @@ jobs:
             --build-arg "VERSION=${VERSION}" \
             --output "type=local,dest=dist/${arch}" \
             -f docker/Dockerfile .
-          install -D "dist/${arch}/yarad" "out/yarad-linux-${arch}"
-          # yarad-scan: the lean, CGO-free Sieve/LDA client.
-          install -D "dist/${arch}/yarad-scan" "out/yarad-scan-linux-${arch}"
+          install -D "dist/${arch}/strixd" "out/strixd-linux-${arch}"
+          # strix-scan: the lean, CGO-free Sieve/LDA client.
+          install -D "dist/${arch}/strix-scan" "out/strix-scan-linux-${arch}"
           ls -l out
 
       - name: upload arch binaries
@@ -61,7 +61,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Build .deb packages (yarad daemon + yarad-scan client, amd64 + arm64) from
+  # Build .deb packages (strixd daemon + strix-scan client, amd64 + arm64) from
   # the just-built binaries with nfpm — no debian/ tree, pure-Go packager.
   debs:
     needs: binaries
@@ -94,11 +94,11 @@ jobs:
           mkdir -p dist
           for arch in amd64 arm64; do
             # nfpm doesn't template the contents src path — stage to a fixed name.
-            cp "../../out/yarad-linux-${arch}"      dist/yarad
-            cp "../../out/yarad-scan-linux-${arch}" dist/yarad-scan
+            cp "../../out/strixd-linux-${arch}"      dist/strixd
+            cp "../../out/strix-scan-linux-${arch}" dist/strix-scan
             export ARCH="$arch"
-            nfpm pkg -f nfpm-yarad.yaml      -p deb -t "../../debout/yarad_${VERSION}_${arch}.deb"
-            nfpm pkg -f nfpm-yarad-scan.yaml -p deb -t "../../debout/yarad-scan_${VERSION}_${arch}.deb"
+            nfpm pkg -f nfpm-strixd.yaml      -p deb -t "../../debout/strixd_${VERSION}_${arch}.deb"
+            nfpm pkg -f nfpm-strix-scan.yaml -p deb -t "../../debout/strix-scan_${VERSION}_${arch}.deb"
           done
           ls -l ../../debout
 
@@ -134,7 +134,7 @@ jobs:
       - name: checksums
         run: |
           set -euo pipefail
-          ( cd out && sha256sum yarad-linux-* yarad-scan-linux-* ./*.deb > SHA256SUMS )
+          ( cd out && sha256sum strixd-linux-* strix-scan-linux-* ./*.deb > SHA256SUMS )
           ls -l out
 
       - name: create release
@@ -146,7 +146,7 @@ jobs:
           # manually before the tag push), upload/overwrite assets onto it
           # instead of failing the whole run on a duplicate. Assets = the four
           # binaries, the four .debs, and the SHA256SUMS that covers them all.
-          assets=( out/yarad-linux-* out/yarad-scan-linux-* out/*.deb out/SHA256SUMS )
+          assets=( out/strixd-linux-* out/strix-scan-linux-* out/*.deb out/SHA256SUMS )
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" --clobber "${assets[@]}"
           else

@@ -28,8 +28,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/eilandert/rspamd-yarad/internal/atomicio"
-	"github.com/eilandert/rspamd-yarad/internal/urlcand"
+	"github.com/eilandert/mailstrix/internal/atomicio"
+	"github.com/eilandert/mailstrix/internal/urlcand"
 )
 
 const (

@@ -1,9 +1,9 @@
 /*
   PE and ELF structural anomaly markers.
 
-  yarad's extract.analyzeBinaries runs saferwall/pe structural analysis on every
+  mailstrix's extract.analyzeBinaries runs saferwall/pe structural analysis on every
   PE stream (including base64-carved children) and emits typed markers into
-  Result.Streams. Every literal below is emitted ONLY by yarad -> matching is
+  Result.Streams. Every literal below is emitted ONLY by mailstrix -> matching is
   zero-FP by construction; heuristics mirror oletools' malpev checks and the
   saferwall/pe anomaly detector.
 
@@ -24,7 +24,7 @@
 rule PE_Section_Packed : pe packed heuristic malware marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE section with entropy >= 7.2 — characteristic of packed/encrypted code"
         reference   = "https://attack.mitre.org/techniques/T1027/"
         score       = "70"
@@ -37,7 +37,7 @@ rule PE_Section_Packed : pe packed heuristic malware marker
 rule PE_Section_High_Entropy : pe entropy heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE section with entropy >= 7.0 (below packing threshold but above normal)"
         reference   = "https://attack.mitre.org/techniques/T1027/"
         score       = "50"
@@ -50,7 +50,7 @@ rule PE_Section_High_Entropy : pe entropy heuristic suspicious marker
 rule PE_Overlay : pe overlay heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE file with non-empty overlay — data appended past the last section (common dropper/loader trait)"
         reference   = "https://attack.mitre.org/techniques/T1027/"
         score       = "50"
@@ -63,7 +63,7 @@ rule PE_Overlay : pe overlay heuristic suspicious marker
 rule PE_Virtual_Section : pe formbook heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE section with SizeOfRawData=0 and VirtualSize>0 (FormBook .ndata / hollow-process trait)"
         reference   = "https://attack.mitre.org/techniques/T1055/"
         score       = "60"
@@ -76,7 +76,7 @@ rule PE_Virtual_Section : pe formbook heuristic suspicious marker
 rule PE_DotNet : pe dotnet heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE file contains a CLR data directory (.NET assembly) — common for managed-code malware loaders"
         reference   = "https://attack.mitre.org/techniques/T1059/001/"
         score       = "40"
@@ -89,7 +89,7 @@ rule PE_DotNet : pe dotnet heuristic suspicious marker
 rule PE_Anomaly : pe anomaly heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PE file contains structural anomalies detected by saferwall/pe (malformed headers, future timestamps, etc.)"
         reference   = "https://attack.mitre.org/techniques/T1027/"
         score       = "50"
@@ -102,7 +102,7 @@ rule PE_Anomaly : pe anomaly heuristic suspicious marker
 rule ELF_Executable : elf linux heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Valid ELF executable found embedded in a mail attachment container — Linux malware dropper"
         reference   = "https://attack.mitre.org/techniques/T1204/002/"
         score       = "55"

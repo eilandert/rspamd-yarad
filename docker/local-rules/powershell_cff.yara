@@ -24,7 +24,7 @@
 rule PS1_ControlFlowFlatten_CharSurgery : powershell obfuscation heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PowerShell control-flow-flattening (while $v -ne -1 then switch $v) state machine plus heavy .Insert char-surgery string rebuild"
         reference   = "MalwareBazaar live .ps1 corpus 2026"
         score       = "65"

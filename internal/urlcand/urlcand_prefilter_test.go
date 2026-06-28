@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eilandert/rspamd-yarad/internal/urlcand"
+	"github.com/eilandert/mailstrix/internal/urlcand"
 )
 
 // ---------------------------------------------------------------------------

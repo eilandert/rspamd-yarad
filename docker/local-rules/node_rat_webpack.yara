@@ -32,7 +32,7 @@
 rule Node_RAT_Webpack_Bundle : js rat dropper exfil heuristic malware
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Webpack-bundled Node.js RAT: child_process+axios+form-data shims, execSync, scheme-hidden C2 upload"
         reference   = "https://attack.mitre.org/techniques/T1071/001/"
         sample      = "fe66493e1ad2c9826f8379bc6c720ba24ce0c0dfb9a765faec79e335ea7a3b8f"

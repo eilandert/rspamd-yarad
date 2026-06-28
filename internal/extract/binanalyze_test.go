@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eilandert/rspamd-yarad/internal/extract"
+	"github.com/eilandert/mailstrix/internal/extract"
 )
 
 // PE32 layout constants (fixed, all sizes in bytes):

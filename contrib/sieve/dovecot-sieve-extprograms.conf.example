@@ -1,4 +1,4 @@
-# Dovecot config to enable the Sieve `execute` extension used by yarad-scan.sieve.
+# Dovecot config to enable the Sieve `execute` extension used by strix-scan.sieve.
 # Merge into your Dovecot config (e.g. /etc/dovecot/conf.d/90-sieve-extprograms.conf)
 # and reload dovecot.
 
@@ -11,14 +11,14 @@ plugin {
   sieve_global_extensions = +vnd.dovecot.execute
 
   # Programs callable via `execute :pipe "name"` live here. Install
-  # yarad-scan-wrapper into this directory (0755, owned by the run-as user).
+  # strix-scan-wrapper into this directory (0755, owned by the run-as user).
   sieve_execute_bin_dir = /usr/lib/dovecot/sieve-execute
 
   # editheader (addheader/X-Yara-Scan) — optional, drop the require + addheader
   # lines from the script if you don't want header tagging.
   sieve_extensions = +editheader
 
-  # Run yarad-scan.sieve before the user's own script, at delivery, for everyone.
+  # Run strix-scan.sieve before the user's own script, at delivery, for everyone.
   # (Use sieve_after instead if a match should still respect user filing rules.)
-  sieve_before = /etc/dovecot/sieve/yarad-scan.sieve
+  sieve_before = /etc/dovecot/sieve/strix-scan.sieve
 }

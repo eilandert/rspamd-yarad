@@ -25,7 +25,7 @@
 rule PS1_Despaced_Assembly_Load_Loader : powershell loader heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PowerShell URL-despace (.Replace(' ','')) + %base64% marker + Get-Content byte-array loader + Assembly::Load -- Brazilian .NET dropper family"
         reference   = "MalwareBazaar live .ps1 corpus 2026"
         score       = "70"

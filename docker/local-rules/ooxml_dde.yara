@@ -13,10 +13,10 @@
       { DDEAUTO c:\\Windows\\System32\\cmd.exe /k calc }
   will launch cmd.exe when the document is opened (with or without macros
   enabled). Because DDE fields are XML text rather than binary VBA, they survive
-  simple macro-scan filters — the yarad extractor surfaces them explicitly.
+  simple macro-scan filters — the mailstrix extractor surfaces them explicitly.
 
   FP mitigation:
-  - Requires the literal "OOXML-DDE-FIELD " prefix (only emitted by yarad's
+  - Requires the literal "OOXML-DDE-FIELD " prefix (only emitted by mailstrix's
     extract package, never present in raw document bytes or the zip binary).
   - AND requires a DDE or DDEAUTO token in the same stream.
   - The two-part AND keeps it off ordinary documents that happen to match one
@@ -35,7 +35,7 @@
 rule Maldoc_DDE_Field : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML document contains a DDE/DDEAUTO field instruction (command injection heuristic)"
         reference   = "https://attack.mitre.org/techniques/T1559/002/"
         date        = "2026-06-18"
@@ -62,12 +62,12 @@ rule Maldoc_DDE_Field : maldoc heuristic suspicious
   executes. A DDE command formula in a SYLK cell, e.g.
       =cmd|'/c calc.exe'!A1
   launches the named program when the file is opened — the macro-less command
-  execution vector, delivered as innocuous-looking text. The yarad extractor
+  execution vector, delivered as innocuous-looking text. The mailstrix extractor
   (extract.fromSLK) parses the C-record E-fields and emits a synthetic
   "SLK-DDE <formula>" stream for the DDE command form.
 
   FP mitigation: requires the literal "SLK-DDE " prefix, only ever emitted by
-  yarad's extractor (never in raw file bytes), so matching it is zero-FP by
+  mailstrix's extractor (never in raw file bytes), so matching it is zero-FP by
   construction. score 70 = high confidence (a SYLK DDE command formula has no
   benign analogue).
 
@@ -78,7 +78,7 @@ rule Maldoc_DDE_Field : maldoc heuristic suspicious
 rule SLK_DDE_Command : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "SYLK (.slk) cell contains a DDE command-execution formula"
         reference   = "https://attack.mitre.org/techniques/T1559/002/"
         date        = "2026-06-21"
@@ -100,12 +100,12 @@ rule SLK_DDE_Command : maldoc heuristic suspicious
       @SUM(1+1)*cmd|'/c calc'!A0
   opening the file launches the named program — macro-less, container-less
   command execution delivered as innocuous-looking text (MITRE T1559.002 /
-  "CSV formula injection"). The yarad extractor (extract.fromCSVDDE /
+  "CSV formula injection"). The mailstrix extractor (extract.fromCSVDDE /
   fromSpreadsheetML) tests each cell and emits a synthetic "CSV-DDE <cell>"
   stream for the DDE command form.
 
   FP mitigation: requires the literal "CSV-DDE " prefix, only ever emitted by
-  yarad's extractor (never in raw file bytes) — and the extractor only emits it
+  mailstrix's extractor (never in raw file bytes) — and the extractor only emits it
   when a cell both starts with a formula trigger AND carries the app|args!ref DDE
   form (a bare "=SUM(A1:A9)" never matches). Zero-FP by construction.
   score 70 = high confidence.
@@ -117,7 +117,7 @@ rule SLK_DDE_Command : maldoc heuristic suspicious
 rule CSV_DDE_Command : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "CSV / Excel-2003-XML cell contains a DDE command-execution formula"
         reference   = "https://attack.mitre.org/techniques/T1559/002/"
         date        = "2026-06-22"
@@ -137,17 +137,17 @@ rule CSV_DDE_Command : maldoc heuristic suspicious
   a DDE server + topic (e.g. cmd | "/c calc.exe") as UTF-16LE strings inside the
   binary record, so refreshing the link runs a command (MITRE T1559.002) — the
   binary-xlsb analogue of CSV-DDE / OOXML-DDE, invisible to a plain-text scan.
-  The yarad extractor (extract.fromXLSBExternalDDE) parses the supbook and emits
+  The mailstrix extractor (extract.fromXLSBExternalDDE) parses the supbook and emits
   a synthetic "XLSB-DDE <server>|<topic>" stream only for sbt=1.
 
   FP mitigation: requires the literal "XLSB-DDE " prefix, only ever emitted by
-  yarad's extractor (never raw file bytes) — and only for a DDE-type supbook
+  mailstrix's extractor (never raw file bytes) — and only for a DDE-type supbook
   (a normal workbook reference sbt=0 emits nothing). Zero-FP by construction.
 */
 rule XLSB_DDE_SupBook : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "XLSB external-link supporting book is a DDE command-execution link"
         reference   = "https://attack.mitre.org/techniques/T1559/002/"
         date        = "2026-06-26"

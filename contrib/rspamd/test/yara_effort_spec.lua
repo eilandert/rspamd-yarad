@@ -1,7 +1,7 @@
 #!/usr/bin/env lua
 --[[
 yara_effort_spec.lua — standalone test (plain lua5.4, no rspamd) for the
-EFFORT-3 X-YARAD-Effort tier computation in rspamd/plugins/yara.lua.
+EFFORT-3 X-MAILSTRIX-Effort tier computation in rspamd/plugins/yara.lua.
 
 The plugin can't be unit-loaded here (it `require`s rspamd_* at load and
 registers against rspamd_config). So this mirrors the exact math of

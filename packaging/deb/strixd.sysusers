@@ -1,0 +1,2 @@
+# systemd-sysusers: create the unprivileged strixd service account.
+u strixd - "strixd scanning daemon" /var/lib/mailstrix -

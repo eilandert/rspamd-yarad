@@ -1,4 +1,4 @@
-yarad — YARA scanner backend for rspamd
+strixd — YARA scanner backend for rspamd
 Copyright (c) 2026 eilandert
 Licensed under the MIT License. See LICENSE.
 
@@ -40,8 +40,8 @@ at image build time. Each source retains its own license:
    URL:     https://github.com/kevoreilly/CAPEv2
    License: BSD 3-Clause License
 
-9. Local rules (yarad)
-   URL:     https://github.com/eilandert/rspamd-yarad
+9. Local rules (strixd)
+   URL:     https://github.com/eilandert/mailstrix
    License: MIT (same as this project)
 
 ---

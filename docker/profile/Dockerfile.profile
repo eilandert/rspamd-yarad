@@ -5,8 +5,8 @@
 # string-matching phase dominates scan time (PERF-12 found 3 yaraify rules =
 # 99.3% of all cost). NOT a runtime image — build context is the REPO ROOT.
 #
-#   docker build -f docker/profile/Dockerfile.profile -t yarad-profile .
-#   docker run --rm -v /abs/path/to/samples:/samples yarad-profile > cost.tsv
+#   docker build -f docker/profile/Dockerfile.profile -t strixd-profile .
+#   docker run --rm -v /abs/path/to/samples:/samples strixd-profile > cost.tsv
 #
 # (samples = plaintext malware bodies; extract testdata/live-samples/*.zip with
 # pyzipper, pw `infected`. See docker/profile/run-profile.sh for a wrapper.)
@@ -30,11 +30,11 @@ RUN ./bootstrap.sh \
 
 # the EXACT prod rule pipeline (single source of truth; context = repo root)
 COPY docker/fetch-rules.sh docker/compile-rules.sh /usr/local/bin/
-COPY docker/local-rules/ /usr/local/share/yarad-local-rules/
+COPY docker/local-rules/ /usr/local/share/mailstrix-local-rules/
 RUN chmod +x /usr/local/bin/fetch-rules.sh /usr/local/bin/compile-rules.sh
 ARG CACHEBUST=unset
 RUN /usr/local/bin/fetch-rules.sh /rules/src \
-    && cp /usr/local/share/yarad-local-rules/*.yara /rules/src/ \
+    && cp /usr/local/share/mailstrix-local-rules/*.yara /rules/src/ \
     && /usr/local/bin/compile-rules.sh /rules/src /rules/compiled.yac
 
 COPY docker/profile/profile.c /tmp/profile.c
@@ -45,5 +45,5 @@ RUN gcc -O2 /tmp/profile.c -o /usr/local/bin/profile \
       $(pkg-config --cflags --libs yara) -lyara -lssl -lcrypto -ljansson -lmagic -lm
 
 # samples are mounted at run time (not baked — they're malware, gitignored):
-#   docker run --rm -v /path/to/samples:/samples yarad-profile
+#   docker run --rm -v /path/to/samples:/samples strixd-profile
 CMD ["/usr/local/bin/profile", "/rules/compiled.yac", "/samples"]
