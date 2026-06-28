@@ -43,10 +43,10 @@ compiles those rules — libyara modules and all — and runs them over your mai
   through the same engine ([ICAP mode](#icap-mode-optional)).
 
 ```
- ┌──────────────────────┐  POST /scan ┌────────────┐    ┌──────────────┐
- │ rspamd  (mailstrix.lua)   │ ─────────▶ │   strixd    │ ─▶ │   libyara    │
- │  SpamAssassin / Sieve│ ◀───────── │(Go service)│    │compiled rules│
- │  (strix-scan) / ICAP │  {matches}  └────────────┘    └──────────────┘
+ ┌──────────────────────┐  POST /scan  ┌──────────────┐    ┌──────────────┐
+ │ rspamd (mailstrix.lua)│ ───────────▶ │    strixd    │ ─▶ │   libyara    │
+ │ SpamAssassin / Sieve  │ ◀─────────── │ (Go service) │    │compiled rules│
+ │ (strix-scan) / ICAP   │   {matches}  └──────────────┘    └──────────────┘
  └──────────────────────┘
 ```
 
