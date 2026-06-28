@@ -1,2 +1,0 @@
-# systemd-sysusers: create the unprivileged yarad service account.
-u yarad - "yarad scanning daemon" /var/lib/yarad -

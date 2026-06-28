@@ -1,11 +1,11 @@
 #!/bin/sh
-# fetch-rules.sh — download the public YARA rulesets baked into the yarad image.
+# fetch-rules.sh — download the public YARA rulesets baked into the strixd image.
 #
 # Run at image-build time (after CACHEBUST so a daily rebuild re-pulls the
 # latest). Output goes to $1 (default /rules). Each source is fetched into its
 # own subtree, then the *.yar/*.yara files we want are flattened into the rules
 # dir. A source that 404s or yields no rules is fatal (the build must not
-# silently ship fewer rules), unless YARAD_RULES_OPTIONAL=1.
+# silently ship fewer rules), unless MAILSTRIX_RULES_OPTIONAL=1.
 #
 # Sources (override with env to pin a tag/commit):
 #   YARAFORGE_SET  — YARA-Forge package: core (default), extended, or full
@@ -27,7 +27,7 @@ mkdir -p "$OUT"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-fail() { echo "fetch-rules: $*" >&2; [ "${YARAD_RULES_OPTIONAL:-0}" = "1" ] || exit 1; }
+fail() { echo "fetch-rules: $*" >&2; [ "${MAILSTRIX_RULES_OPTIONAL:-0}" = "1" ] || exit 1; }
 
 # LOCAL_ONLY=1 — skip ALL network rule sources (the 8 public feeds) and produce
 # an empty fetched set. The compile step still copies docker/local-rules/ in, so
@@ -35,10 +35,10 @@ fail() { echo "fetch-rules: $*" >&2; [ "${YARAD_RULES_OPTIONAL:-0}" = "1" ] || e
 # Used by GitHub CI + release builds, where fetching/compiling the full public
 # ruleset is too heavy: the real public bundle is built by the local nightly cron
 # (docker/generate-rules.sh) and published to the `rules-current` release, which
-# yarad pulls at runtime via `--fetch-rules`. The cron does NOT set LOCAL_ONLY.
+# strixd pulls at runtime via `--fetch-rules`. The cron does NOT set LOCAL_ONLY.
 if [ "${LOCAL_ONLY:-0}" = "1" ]; then
     echo "fetch-rules: LOCAL_ONLY=1 — skipping all network sources (public rules come from the rules-current release)"
-    printf '[\n  {"name":"local","repo":"https://github.com/eilandert/rspamd-yarad","license":"MIT","ref":"baked"}\n]\n' > "$OUT/sources.json"
+    printf '[\n  {"name":"local","repo":"https://github.com/eilandert/mailstrix","license":"MIT","ref":"baked"}\n]\n' > "$OUT/sources.json"
     echo "fetch-rules: wrote $OUT/sources.json (local-only)"
     exit 0
 fi
@@ -123,7 +123,7 @@ if [ "${DIDIER:-1}" = "1" ]; then
 rule Didier_PDF_ActiveMime_Maldoc : pdf maldoc activemime
 {
     meta:
-        author = "Didier Stevens concept, yarad curated packaging"
+        author = "Didier Stevens concept, strixd curated packaging"
         description = "Detects PDF/ActiveMime polyglot maldocs"
         reference = "https://blog.didierstevens.com/2023/08/29/quickpost-pdf-activemime-maldocs-yara-rule/"
         license = "public domain"
@@ -161,7 +161,7 @@ if [ "${BARTBLAZE:-1}" = "1" ]; then
     fi
 fi
 
-# 6) InQuest/yara-rules-vt — MIT, small, and particularly useful once yarad can
+# 6) InQuest/yara-rules-vt — MIT, small, and particularly useful once strixd can
 #    surface Windows/mail carriers. Curated instead of whole-repo: skip pure file
 #    identifiers, broad informational rules, and rules yarac flags as slow (e.g.
 #    PDF_with_Embedded_RTF_OLE_Newlines.yar).
@@ -267,14 +267,14 @@ fi
 # happened: the #223 entry SIGNATURE_BASE_SUSP_Encoded_Discord_Attachment_Oct21_1
 # is bundled inside yaraforge core, so the build dropped the whole forge core set
 # (live fell 11878 -> 6721 rules) until this guard was added. Suppress benign-mail
-# FP/noise rules at RUNTIME via YARAD_RULE_DENYLIST (comma-sep rule names) in the
+# FP/noise rules at RUNTIME via MAILSTRIX_RULE_DENYLIST (comma-sep rule names) in the
 # deploy compose instead — that drops match RESULTS without unloading siblings.
 #
 # Pruned by RULE NAME (robust to upstream file renames). The bundle guard below
 # REFUSES to remove any file declaring >1 rule, so a mis-targeted entry can never
 # silently blind a whole ruleset. Re-profile after each yaraify refetch (it pulls
 # latest daily): new offenders → add here (single-rule files only).
-# Full data: memory/eilandert/rspamd-yarad/issues.md "PERF-12".
+# Full data: memory/eilandert/mailstrix/issues.md "PERF-12".
 SLOW_RULE_DENYLIST="Luckyware_Infection_Detection kryptina_encryptor DLL_DiceLoader_Fin7_Feb2024"
 for bad in $SLOW_RULE_DENYLIST; do
     # files that DECLARE this rule (anchored `rule <name>` token, not a substring)
@@ -288,8 +288,8 @@ for bad in $SLOW_RULE_DENYLIST; do
         if [ "$n" -gt 1 ]; then
             # BUNDLE GUARD: refuse to drop a shared multi-rule file — removing it
             # would unload $((n-1)) innocent siblings (e.g. the 5153-rule forge
-            # core bundle). Suppress this one at runtime via YARAD_RULE_DENYLIST.
-            echo "fetch-rules: WARNING PERF-12 denylist: SKIP '$bad' — shares $(basename "$f") with $((n-1)) other rule(s); not removing the bundle (use runtime YARAD_RULE_DENYLIST)" >&2
+            # core bundle). Suppress this one at runtime via MAILSTRIX_RULE_DENYLIST.
+            echo "fetch-rules: WARNING PERF-12 denylist: SKIP '$bad' — shares $(basename "$f") with $((n-1)) other rule(s); not removing the bundle (use runtime MAILSTRIX_RULE_DENYLIST)" >&2
             continue
         fi
         rm -f "$f"
@@ -301,7 +301,7 @@ COUNT="$(find "$OUT" -name '*.yar' -o -name '*.yara' | wc -l)"
 echo "fetch-rules: $COUNT rule files in $OUT"
 [ "$COUNT" -gt 0 ] || fail "no rule files fetched"
 
-# Write sources.json — per-ruleset provenance for `yarad info` / /version.
+# Write sources.json — per-ruleset provenance for `strixd info` / /version.
 # Only includes sources that were actually fetched (respects ANYRUN=0 etc).
 {
     printf '[\n'
@@ -325,7 +325,7 @@ echo "fetch-rules: $COUNT rule files in $OUT"
     if [ "${YARAIFY:-1}" = "1" ]; then
         printf ',\n  {"name":"yaraify","repo":"https://yaraify.abuse.ch/yarahub/","license":"CC0","ref":"latest"}'
     fi
-    printf ',\n  {"name":"local","repo":"https://github.com/eilandert/rspamd-yarad","license":"MIT","ref":"baked"}'
+    printf ',\n  {"name":"local","repo":"https://github.com/eilandert/mailstrix","license":"MIT","ref":"baked"}'
     printf '\n]\n'
 } > "$OUT/sources.json"
 echo "fetch-rules: wrote $OUT/sources.json"

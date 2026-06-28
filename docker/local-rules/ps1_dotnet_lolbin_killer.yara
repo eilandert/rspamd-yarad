@@ -31,7 +31,7 @@
 rule PS1_DotNet_LOLBin_Killer_Loader : powershell loader heuristic malware
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PowerShell loader kills .NET Framework managed LOLBins (aspnet_compiler/AddInProcess) to prep a process inject (AsyncRAT/DcRat)"
         reference   = "https://attack.mitre.org/techniques/T1055/012/"
         sample      = "0c627ab6a8d28441c206e17807ded824d2148c3424c6a13bd7455e0c2d2d039d"

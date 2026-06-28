@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eilandert/rspamd-yarad/internal/extract"
+	"github.com/eilandert/mailstrix/internal/extract"
 )
 
 // buildNoneCab builds a minimal CAB with NONE compression holding one file.

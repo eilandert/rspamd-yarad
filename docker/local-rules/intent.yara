@@ -1,6 +1,6 @@
 /*
   Intent rules — macro/script behaviour heuristics (olevba "suspicious" + LOLBin
-  lore), expressed as pure YARA over every buffer yarad scans: the decompressed
+  lore), expressed as pure YARA over every buffer mailstrix scans: the decompressed
   VBA macro stream, raw body / script carriers, and the single-layer-decoded
   blobs from decode.go. Each rule pairs a tool/keyword with a SPECIFIC abusive
   argument so a bare mention (security docs, newsletters) does not fire — the
@@ -13,7 +13,7 @@
 rule LOLBins_Invocation : lolbin heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Living-off-the-land binary invoked with a download/execute argument"
         reference   = "https://lolbas-project.github.io/"
         score       = "50"
@@ -33,7 +33,7 @@ rule LOLBins_Invocation : lolbin heuristic suspicious
 rule WMI_Process_Spawn : wmi heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "WMI Win32_Process.Create — process spawn via WMI (common macro dropper technique)"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "55"
@@ -48,7 +48,7 @@ rule WMI_Process_Spawn : wmi heuristic suspicious
 rule PowerShell_Abuse_Flags : powershell heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PowerShell launched with encoded/hidden/download flags"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "50"
@@ -71,7 +71,7 @@ rule PowerShell_Abuse_Flags : powershell heuristic suspicious
 rule Maldoc_AntiAnalysis_Evasion : evasion heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Macro combines two or more anti-analysis / sandbox-evasion primitives"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "30"
@@ -91,7 +91,7 @@ rule Maldoc_AntiAnalysis_Evasion : evasion heuristic suspicious
 // (internal/extract/decode.go foldVBAStrings) when an Environ("NAME") lookup is
 // folded — INCLUDING when the call was reassembled from Chr()/concat obfuscation,
 // where the raw "Environ(" keyword the heuristic rules grep for is gone. The
-// marker prefix is emitted only by yarad, so the literal is zero-FP. Env-var
+// marker prefix is emitted only by mailstrix, so the literal is zero-FP. Env-var
 // probing alone is recon (path-building, sandbox checks), so a modest score; it
 // stacks with the anti-analysis / dropper rules above when present together.
 rule VBA_Environ_Probe : maldoc heuristic suspicious {
@@ -109,12 +109,12 @@ rule VBA_Environ_Probe : maldoc heuristic suspicious {
 // only after >= deepDecodeLayer (3) STACKED decode passes — e.g.
 // base64-over-hex-over-base64 nesting. Legitimate content is never multiply
 // re-encoded, so the marker has no benign analogue; the prefix is emitted only by
-// yarad (zero-FP literal). Deep nesting is a deliberate detection-evasion signal
+// mailstrix (zero-FP literal). Deep nesting is a deliberate detection-evasion signal
 // on its own, so a high score; whatever payload was finally unwrapped is ALSO
 // scanned by the keyword/URL rules and stacks on top.
 rule Multilayer_Encoded_Payload : maldoc heuristic suspicious marker {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Payload hidden behind >=3 stacked decode layers (base64/hex/etc nesting) — deliberate obfuscation"
         reference   = "https://github.com/decalage2/oletools/wiki/olevba"
         score       = "70"
@@ -127,7 +127,7 @@ rule Multilayer_Encoded_Payload : maldoc heuristic suspicious marker {
 rule BAT_Dropper_Curl_Execute : bat heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "BAT script downloads a binary with curl/wget/bitsadmin then executes it via rundll32 or directly"
         score       = "60"
     strings:

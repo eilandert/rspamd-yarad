@@ -11,12 +11,12 @@ readme="$(cd "$here/../.." && pwd)/README.md"
 fail=0
 
 # A download URL with a version-pinned .deb name.
-if grep -nE 'releases/(latest/)?download/.*yarad(-scan)?_[0-9]+\.[0-9]+\.[0-9]+_' "$readme"; then
+if grep -nE 'releases/(latest/)?download/.*strixd(-scan)?_[0-9]+\.[0-9]+\.[0-9]+_' "$readme"; then
     echo "FAIL - hard-coded version in a release download URL (use \${VER})"; fail=1
 fi
 
-# An `apt install ./yarad_x.y.z_arch.deb` command (commented examples excluded).
-if grep -nE '^[[:space:]]*sudo apt install \./yarad(-scan)?_[0-9]+\.[0-9]+\.[0-9]+_' "$readme"; then
+# An `apt install ./mailstrix_x.y.z_arch.deb` command (commented examples excluded).
+if grep -nE '^[[:space:]]*sudo apt install \./strixd(-scan)?_[0-9]+\.[0-9]+\.[0-9]+_' "$readme"; then
     echo "FAIL - hard-coded version in an apt install command (use \${VER}/\${ARCH})"; fail=1
 fi
 

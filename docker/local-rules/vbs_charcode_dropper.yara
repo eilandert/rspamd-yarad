@@ -17,7 +17,7 @@
 rule VBS_CharCode_Split_Dropper : maldoc dropper vbscript heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "VBScript dropper: payload Split() into tokens, each ChrW(IsNumeric)-decoded and accumulated, then run via Execute"
         reference   = "MalwareBazaar live .vbs corpus 2024-2026 (4c6c3fb4)"
         score       = "70"

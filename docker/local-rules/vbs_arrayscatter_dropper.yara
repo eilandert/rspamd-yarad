@@ -26,7 +26,7 @@
 rule VBS_ArrayScatter_OffsetTable_Dropper : vbs dropper heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "VBS array-scatter dropper: per-index single-char lookup table reassembled via offset-indexed decode loop then .Run"
         reference   = "MalwareBazaar live .vbs corpus 2026"
         score       = "65"

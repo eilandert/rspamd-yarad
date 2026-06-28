@@ -7,9 +7,9 @@ verdict-explainability change in rspamd/plugins/yara.lua:
      "suspicious") as an AUTHORITATIVE override, before the name/namespace/tag
      keyword heuristic. Rules with no meta.tier are unaffected (heuristic +
      meta.score path unchanged).
-  2. The symbol option for yarad's own rules (meta.author=="yarad") appends the
+  2. The symbol option for strixd's own rules (meta.author=="strixd") appends the
      human meta.description so the rspamd history says WHY a hit fired, bounded to
-     80 chars. Non-yarad (baked corpus) rules keep the bare "rule (namespace)".
+     80 chars. Non-strixd (baked corpus) rules keep the bare "rule (namespace)".
 
 The plugin can't be unit-loaded here (it require()s rspamd globals at load), so
 these mirror the EXACT logic blocks in yara.lua. If the plugin's classify()
@@ -48,7 +48,7 @@ local function build_option(m)
   if m.namespace and m.namespace ~= "" then
     opt = m.rule .. " (" .. m.namespace .. ")"
   end
-  if type(m.meta) == "table" and m.meta.author == "yarad"
+  if type(m.meta) == "table" and m.meta.author == "strixd"
     and type(m.meta.description) == "string" and m.meta.description ~= "" then
     local d = m.meta.description
     if #d > 80 then d = d:sub(1, 77) .. "..." end
@@ -83,35 +83,35 @@ check(tier_from_meta({ rule = "x" }) == nil, "no meta table falls through")
 check(tier_from_meta({ rule = "Susp_Generic", meta = { tier = "malware" } }) == SYM.malware,
   "explicit tier overrides what the name heuristic would pick")
 
--- 4. Description appended for yarad rules, bounded to 80 chars.
+-- 4. Description appended for strixd rules, bounded to 80 chars.
 do
   local m = { rule = "LOLBins_Invocation", namespace = "intent.yar",
-              meta = { author = "yarad", description = "Living-off-the-land binary invoked with a download/execute argument" } }
+              meta = { author = "strixd", description = "Living-off-the-land binary invoked with a download/execute argument" } }
   local opt = build_option(m)
   check(opt:find("LOLBins_Invocation %(intent%.yar%)") ~= nil, "option keeps rule (namespace)")
-  check(opt:find(": Living%-off%-the%-land") ~= nil, "yarad rule description is appended after ': '")
+  check(opt:find(": Living%-off%-the%-land") ~= nil, "strixd rule description is appended after ': '")
 end
 
 do
   local long = string.rep("A", 200)
-  local opt = build_option({ rule = "R", namespace = "n.yar", meta = { author = "yarad", description = long } })
+  local opt = build_option({ rule = "R", namespace = "n.yar", meta = { author = "strixd", description = long } })
   local desc = opt:match(": (.*)$")
   check(desc ~= nil and #desc == 80, "long description is truncated to 80 chars (77 + '...')")
   check(desc:sub(-3) == "...", "truncated description ends with '...'")
 end
 
--- 5. Baked-corpus (non-yarad) rules get NO description appended — only "rule (ns)".
+-- 5. Baked-corpus (non-strixd) rules get NO description appended — only "rule (ns)".
 do
   local opt = build_option({ rule = "SUSP_x", namespace = "sigbase.yar",
                              meta = { author = "Florian Roth", description = "some noisy upstream description" } })
-  check(opt == "SUSP_x (sigbase.yar)", "non-yarad rule keeps bare 'rule (namespace)', no description")
+  check(opt == "SUSP_x (sigbase.yar)", "non-strixd rule keeps bare 'rule (namespace)', no description")
 end
 
--- 6. yarad rule with empty/absent description is unchanged.
+-- 6. strixd rule with empty/absent description is unchanged.
 do
-  check(build_option({ rule = "R", namespace = "n.yar", meta = { author = "yarad", description = "" } })
+  check(build_option({ rule = "R", namespace = "n.yar", meta = { author = "strixd", description = "" } })
     == "R (n.yar)", "empty description not appended")
-  check(build_option({ rule = "R", namespace = "n.yar", meta = { author = "yarad" } })
+  check(build_option({ rule = "R", namespace = "n.yar", meta = { author = "strixd" } })
     == "R (n.yar)", "absent description not appended")
 end
 

@@ -1,6 +1,6 @@
 # Append to /etc/rspamd/rspamd.conf.local on the host.
 #
-# Two things rspamd needs for a CUSTOM lua module like yarad's yara.lua:
+# Two things rspamd needs for a CUSTOM lua module like strixd's yara.lua:
 #   1. an explicit `lua = "..."` include to load the plugin file. rspamd only
 #      auto-loads plugins.d/*.lua for module names it already knows; "yara" is
 #      not one, so it must be included by hand (same as kam.lua).
@@ -16,15 +16,15 @@
 lua = "/etc/rspamd/plugins.d/yara.lua";
 
 yara {
-  # yarad endpoint — IPv4, not a docker name (rspamd's RBL-only resolver can't
-  # resolve container names). Match the address yarad binds on the shared net.
+  # strixd endpoint — IPv4, not a docker name (rspamd's RBL-only resolver can't
+  # resolve container names). Match the address strixd binds on the shared net.
   url = "http://172.30.0.43:8079/scan";
-  # Shared secret = yarad's YARAD_TOKEN. Prefer token_file (a mounted 0444 secret)
+  # Shared secret = strixd's MAILSTRIX_TOKEN. Prefer token_file (a mounted 0444 secret)
   # over an inline token so it never lives in config; if both are set token_file
   # wins. The plugin warns at startup if the token is empty or still "change-me".
   # token = "change-me";
-  token_file = "/etc/rspamd/yarad.token";
-  # Must cover yarad's worst case = YARAD_BACKEND_TIMEOUT + YARAD_SCAN_TIMEOUT.
+  token_file = "/etc/rspamd/strixd.token";
+  # Must cover strixd's worst case = MAILSTRIX_BACKEND_TIMEOUT + MAILSTRIX_SCAN_TIMEOUT.
   # Defaults are aligned: BACKEND_TIMEOUT=1 + SCAN_TIMEOUT=8 = 9s, leaving a
   # little HTTP/JSON overhead before this timeout expires.
   timeout = 10.0;

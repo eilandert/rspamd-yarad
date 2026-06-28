@@ -1,0 +1,38 @@
+[Unit]
+Description=strixd — YARA mail-malware scanning daemon
+Documentation=https://github.com/eilandert/mailstrix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=strixd
+Group=strixd
+EnvironmentFile=-/etc/mailstrix/strixd.env
+ExecStart=/usr/bin/strixd serve
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# strixd needs to reach abuse.ch / GitHub for live feeds + rule fetch, read its
+# rules dir, and listen on a TCP port. Everything else is locked down.
+StateDirectory=strixd
+CacheDirectory=strixd
+RuntimeDirectory=strixd
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/mailstrix /var/cache/mailstrix
+
+[Install]
+WantedBy=multi-user.target

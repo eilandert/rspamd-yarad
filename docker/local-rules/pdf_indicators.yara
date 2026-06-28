@@ -1,13 +1,13 @@
 /*
-  PDF dropper indicator rules -- score yarad's PDF-DEEPEN structural markers.
+  PDF dropper indicator rules -- score mailstrix's PDF-DEEPEN structural markers.
 
-  yarad's extract.fromPDFIndicators surfaces the high-risk pdfid keyword set
+  mailstrix's extract.fromPDFIndicators surfaces the high-risk pdfid keyword set
   (pdfid.py) as synthetic marker streams. These are name tokens in the PDF body
   (auto-run actions, script bodies, launch/embedded-file/exploit vectors), and
-  yarad de-obfuscates hex-escaped names (/J#61vaScript -> /JavaScript) before
+  mailstrix de-obfuscates hex-escaped names (/J#61vaScript -> /JavaScript) before
   matching, so an evasive sample is normalised first.
 
-  Markers (each emitted only by yarad, so matching the literal is zero-FP):
+  Markers (each emitted only by mailstrix, so matching the literal is zero-FP):
     PDF-OPENACTION-JS  -- /OpenAction + a /JS|/JavaScript body: JavaScript that
                           auto-runs when the document is opened. Strongest signal.
     PDF-LAUNCH         -- /Launch action runs an external program.
@@ -28,7 +28,7 @@
 rule PDF_OpenAction_JS : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF auto-runs JavaScript on open (/OpenAction + /JS) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "60"
@@ -41,7 +41,7 @@ rule PDF_OpenAction_JS : maldoc heuristic suspicious
 rule PDF_Launch_Action : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF /Launch action (runs an external program) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "50"
@@ -54,7 +54,7 @@ rule PDF_Launch_Action : maldoc heuristic suspicious
 rule PDF_JBIG2 : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF /JBIG2Decode filter (CVE-2009-3459 exploit vector) -- pdfid indicator"
         reference   = "https://www.cve.org/CVERecord?id=CVE-2009-3459"
         score       = "40"
@@ -67,7 +67,7 @@ rule PDF_JBIG2 : maldoc heuristic suspicious
 rule PDF_Additional_Actions : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF /AA additional-actions dictionary (auto-fire on open/page) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "30"
@@ -80,7 +80,7 @@ rule PDF_Additional_Actions : maldoc heuristic suspicious
 rule PDF_EmbeddedFile : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF carries an embedded file (/EmbeddedFile) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "30"
@@ -93,7 +93,7 @@ rule PDF_EmbeddedFile : maldoc heuristic suspicious
 rule PDF_HexObfuscatedName : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF name token used #XX hex-escape obfuscation (evasion) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "30"
@@ -106,7 +106,7 @@ rule PDF_HexObfuscatedName : maldoc heuristic suspicious
 rule PDF_ObjStm : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "PDF object stream /ObjStm (hides objects from naive scanners) -- pdfid indicator"
         reference   = "https://blog.didierstevens.com/programs/pdf-tools/"
         score       = "10"

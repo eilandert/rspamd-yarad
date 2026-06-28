@@ -15,7 +15,7 @@
   or oleObject pointing to an http/https/smb host; when they do, it is the attack.
 
   FP mitigation:
-  - Requires the literal "OOXML-EXTERNAL-REL " prefix (only emitted by yarad's
+  - Requires the literal "OOXML-EXTERNAL-REL " prefix (only emitted by mailstrix's
     extract package, never present in raw document bytes).
   - AND requires one of the remote URI schemes -- plain local file paths are
     excluded; only UNC paths (NTLM relay vector) are included.
@@ -30,7 +30,7 @@
 rule OOXML_Remote_Template : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML external relationship points to a remote URI (template/OLE injection heuristic)"
         reference   = "https://attack.mitre.org/techniques/T1221/"
         score       = "50"
@@ -64,7 +64,7 @@ rule OOXML_Remote_Template : maldoc heuristic suspicious
   "OOXML-MHTML-REL <type> <target>" stream (distinct from the generic
   OOXML-EXTERNAL-REL because an mhtml:/!x-usc: scheme in a relationship is the
   exploit, never benign). Matching the prefix is zero-FP by construction -- the
-  literal is yarad-synthetic and never present in raw document bytes.
+  literal is mailstrix-synthetic and never present in raw document bytes.
 
   score 80 = high confidence (no legitimate use of mhtml:/!x-usc: in a rel).
   Reference: https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-40444
@@ -72,7 +72,7 @@ rule OOXML_Remote_Template : maldoc heuristic suspicious
 rule OOXML_MHTML_Scheme : maldoc exploit cve_2021_40444
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML relationship Target uses the CVE-2021-40444 mhtml:/!x-usc: MSHTML scheme"
         reference   = "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-40444"
         score       = "80"

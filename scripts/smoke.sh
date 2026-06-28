@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# scripts/smoke.sh — the yarad HTTP-contract + rule/extractor smoke suite.
+# scripts/smoke.sh — the strixd HTTP-contract + rule/extractor smoke suite.
 #
 # SINGLE SOURCE OF TRUTH for the smoke matrix. Invoked by BOTH:
-#   - .github/workflows/ci.yml   (docker job, after building yarad:ci)
-#   - tools/yarad-local-ci.sh    (full mode, after building the final image)
+#   - .github/workflows/ci.yml   (docker job, after building strixd:ci)
+#   - tools/strixd-local-ci.sh    (full mode, after building the final image)
 # so a local-green admin merge can no longer miss a coverage regression that
 # only the remote smoke matrix would have caught. The hygiene test
 # packaging/deb/smoke_shared_test.sh asserts both callers invoke this script.
@@ -12,12 +12,12 @@
 # (cache off), asserts positives/negatives over /scan, and tears it down.
 # Bodies are built at runtime — no real maldoc is ever shipped in the repo.
 #
-#   scripts/smoke.sh [IMAGE]      # IMAGE defaults to yarad:ci
+#   scripts/smoke.sh [IMAGE]      # IMAGE defaults to strixd:ci
 #
 # Must run from the repo root (reads docker/local-rules/*).
 set -euo pipefail
 
-IMG="${1:-yarad:ci}"
+IMG="${1:-strixd:ci}"
 
 # Track every container/volume we create so a failure mid-suite still cleans up.
 _names=""
@@ -51,7 +51,7 @@ start_rule() {
   mkdir -p "$dir"
   cp "docker/local-rules/$rule" "$dir/"
   _names="$_names $name"
-  docker run -d --name "$name" -e YARAD_TOKEN=ci -e YARAD_RULES= -e YARAD_RULES_DIR=/r -e YARAD_CACHE_DIR= \
+  docker run -d --name "$name" -e MAILSTRIX_TOKEN=ci -e MAILSTRIX_RULES= -e MAILSTRIX_RULES_DIR=/r -e MAILSTRIX_CACHE_DIR= \
     -v "$PWD/$dir:/r:ro" -p "$port:8079" "$IMG"
   wait_healthy "$name"
 }
@@ -59,7 +59,7 @@ start_rule() {
 # scan PORT [extra curl args...] reads the body from stdin and prints the verdict.
 scan() {
   port=$1; shift
-  curl -s -H "X-YARAD-Token: ci" "$@" --data-binary @- "http://127.0.0.1:$port/scan"
+  curl -s -H "X-MAILSTRIX-Token: ci" "$@" --data-binary @- "http://127.0.0.1:$port/scan"
 }
 
 say() { printf '\n=== smoke: %s ===\n' "$1"; }
@@ -75,7 +75,7 @@ rule EICAR_Test_File : test {
 }
 YAR
   _names="$_names yc"
-  docker run -d --name yc -e YARAD_TOKEN=ci -e YARAD_RULES= -e YARAD_RULES_DIR=/r -e YARAD_CACHE_DIR= \
+  docker run -d --name yc -e MAILSTRIX_TOKEN=ci -e MAILSTRIX_RULES= -e MAILSTRIX_RULES_DIR=/r -e MAILSTRIX_CACHE_DIR= \
     -v "$PWD/rules:/r:ro" -p 18079:8079 "$IMG"
   wait_healthy yc
 
@@ -89,13 +89,13 @@ YAR
   clean=$(printf 'plain body' | scan 18079)
   echo "clean: $clean"; [ "$clean" = '{"matches":[]}' ]
 
-  code=$(printf x | curl -s -o /dev/null -w '%{http_code}' -H "X-YARAD-Token: wrong" --data-binary @- http://127.0.0.1:18079/scan)
+  code=$(printf x | curl -s -o /dev/null -w '%{http_code}' -H "X-MAILSTRIX-Token: wrong" --data-binary @- http://127.0.0.1:18079/scan)
   [ "$code" = 401 ]
 
   # Read each endpoint into a var before grep: piping a producer straight
   # into `grep -q` lets grep exit on first match and SIGPIPE the producer
   # (exit 141) under `set -o pipefail`. (See the seed step's note.)
-  m=$(curl -s http://127.0.0.1:18079/metrics); grep -q 'yarad_rules 1' <<<"$m"
+  m=$(curl -s http://127.0.0.1:18079/metrics); grep -q 'mailstrix_rules 1' <<<"$m"
   r=$(curl -s http://127.0.0.1:18079/ready);   grep -q ready <<<"$r"
   v=$(curl -s http://127.0.0.1:18079/version); grep -q extractor_version <<<"$v"
   docker rm -f yc
@@ -212,7 +212,7 @@ smoke_xlm_dangerous() {
 
   # Phase 2c: the multi-marker stacker rules (XLM_Hidden_Dangerous_Dropper,
   # XLM_AutoOpen_Dropper, XLM_Emulator_Deep_Exec) are now `: marker`-tagged.
-  # yarad emits each XLM marker as a SEPARATE stream entry, so the
+  # strixd emits each XLM marker as a SEPARATE stream entry, so the
   # `(hidden) and (danger)` conjunction is structurally dead on raw/content
   # — the fix co-locates the markers into one XLM-STACK buffer routed to the
   # out-of-band Markers channel (joinXLMStackerMarkers), where the tagged
@@ -258,7 +258,7 @@ smoke_equation_editor() {
       printf '\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
       printf '%0.s\x00' {1..64}
       printf 'E\x00q\x00u\x00a\x00t\x00i\x00o\x00n\x00 \x00N\x00a\x00t\x00i\x00v\x00e\x00'
-    } | curl -s -H "X-YARAD-Token: ci" --data-binary @- http://127.0.0.1:18089/scan
+    } | curl -s -H "X-MAILSTRIX-Token: ci" --data-binary @- http://127.0.0.1:18089/scan
   )
   echo "match: $match"; grep -q Exploit_EquationEditor <<<"$match"
 
@@ -309,7 +309,7 @@ with zipfile.ZipFile('/tmp/s.docx', 'w') as z:
     z.writestr('docProps/core.xml', core)
 PY
   fn=$(printf 's.docx' | base64 -w0)
-  match=$(curl -s -H "X-YARAD-Token: ci" -H "X-YARAD-Filename: $fn" --data-binary @/tmp/s.docx http://127.0.0.1:18091/scan)
+  match=$(curl -s -H "X-MAILSTRIX-Token: ci" -H "X-MAILSTRIX-Filename: $fn" --data-binary @/tmp/s.docx http://127.0.0.1:18091/scan)
   echo "match: $match"; grep -q Maldoc_DocProps_Payload <<<"$match"
 
   # Adversarial: a RAW body planting the marker literal + IOC must NOT fire
@@ -361,17 +361,17 @@ smoke_seed_startup() {
   # (the distroless image has no shell/rm to do it in-container).
   docker volume create yc-cache >/dev/null
   _vols="$_vols yc-cache"
-  # Default config: no YARAD_RULES/_DIR overrides, so the image seeds
-  # /var/cache/yarad from the baked /usr/share/yarad seed and serves it.
+  # Default config: no MAILSTRIX_RULES/_DIR overrides, so the image seeds
+  # /var/cache/mailstrix from the baked /usr/share/mailstrix seed and serves it.
   _names="$_names ys"
-  docker run -d --name ys -e YARAD_TOKEN=ci -v yc-cache:/var/cache/yarad \
+  docker run -d --name ys -e MAILSTRIX_TOKEN=ci -v yc-cache:/var/cache/mailstrix \
     -p 18080:8079 "$IMG"
   wait_healthy ys 60
   # Read into a var first: `docker logs … | grep -q` lets grep exit on the
   # first match and SIGPIPE docker-logs (exit 141) under `set -o pipefail`
   # — the flake that reddened PR #31. Assigning first avoids the pipe.
   logs=$(docker logs ys 2>&1); grep -q 'seeded rules cache' <<<"$logs"
-  rules=$(curl -s http://127.0.0.1:18080/metrics | grep '^yarad_rules ' | awk '{print $2}')
+  rules=$(curl -s http://127.0.0.1:18080/metrics | grep '^mailstrix_rules ' | awk '{print $2}')
   echo "seeded rules: $rules"; [ "${rules:-0}" -gt 0 ]
 
   # Self-heal: wipe the cache volume from the host, restart; it must reseed.

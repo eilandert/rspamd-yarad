@@ -21,7 +21,7 @@ import (
 // Build-time pruning removes the WHOLE file declaring a denied rule, so it must
 // never list a rule that lives in a shared multi-rule bundle — the BUNDLE GUARD
 // (TestFetchRules_DenylistBundleGuard) refuses such a removal. Benign-mail
-// FP/noise rules are suppressed at RUNTIME via YARAD_RULE_DENYLIST instead.
+// FP/noise rules are suppressed at RUNTIME via MAILSTRIX_RULE_DENYLIST instead.
 //
 // These tests pin the denylist so the wins can't silently regress.
 

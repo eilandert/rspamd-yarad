@@ -1,9 +1,9 @@
 #!/bin/sh
 # Maintainer-script behaviour test. Runs preremove.sh / postinstall.sh with a
 # fake `systemctl` (and the systemd marker dir faked present) and asserts:
-#   - prerm "upgrade"  must NOT stop or disable yarad
-#   - prerm "remove"   must     stop and  disable yarad
-#   - postinst upgrade (configure <oldver>) try-restarts yarad
+#   - prerm "upgrade"  must NOT stop or disable strixd
+#   - prerm "remove"   must     stop and  disable strixd
+#   - postinst upgrade (configure <oldver>) try-restarts strixd
 #   - postinst install (configure, no oldver) does NOT restart, prints hints
 # No root / no real systemd needed; the fake systemctl just logs its argv.
 set -eu
@@ -57,22 +57,22 @@ fi
 
 # --- prerm upgrade: keep service ---
 run preremove.sh upgrade 1.1.1
-absent "prerm upgrade does not stop"    "stop yarad"    "$work/calls"
-absent "prerm upgrade does not disable" "disable yarad" "$work/calls"
+absent "prerm upgrade does not stop"    "stop strixd"    "$work/calls"
+absent "prerm upgrade does not disable" "disable strixd" "$work/calls"
 
 # --- prerm remove: tear down ---
 run preremove.sh remove
 if [ -d /run/systemd/system ]; then
-    check "prerm remove stops"    "stop yarad"    "$work/calls"
-    check "prerm remove disables" "disable yarad" "$work/calls"
+    check "prerm remove stops"    "stop strixd"    "$work/calls"
+    check "prerm remove disables" "disable strixd" "$work/calls"
 fi
 
 # --- postinst upgrade: restart new binary ---
 out="$(run postinstall.sh configure 1.1.0 2>&1 || true)"
 if [ -d /run/systemd/system ]; then
-    check "postinst upgrade try-restarts" "try-restart yarad" "$work/calls"
+    check "postinst upgrade try-restarts" "try-restart strixd" "$work/calls"
 fi
-if printf '%s' "$out" | grep -q "yarad installed"; then
+if printf '%s' "$out" | grep -q "strixd installed"; then
     echo "FAIL - postinst upgrade printed first-install hints"; fail=1
 else
     echo "ok   - postinst upgrade stays quiet"
@@ -80,8 +80,8 @@ fi
 
 # --- postinst fresh install: no restart, prints hints ---
 out="$(run postinstall.sh configure 2>&1 || true)"
-absent "postinst install does not restart" "try-restart yarad" "$work/calls"
-if printf '%s' "$out" | grep -q "yarad installed"; then
+absent "postinst install does not restart" "try-restart strixd" "$work/calls"
+if printf '%s' "$out" | grep -q "strixd installed"; then
     echo "ok   - postinst install prints hints"
 else
     echo "FAIL - postinst install missing hints"; fail=1

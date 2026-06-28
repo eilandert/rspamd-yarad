@@ -1,6 +1,6 @@
-# yarad — YARA scanner backend for rspamd.
+# strixd — YARA scanner backend for rspamd.
 #
-# Multi-stage: a Debian builder compiles libyara statically and builds yarad
+# Multi-stage: a Debian builder compiles libyara statically and builds strixd
 # with CGO against it (go-yara, yara_static tag), so the final image is a
 # distroless nonroot container that needs no libyara at runtime. Public YARA
 # rulesets are baked in at build time; a daily rebuild (CACHEBUST) re-pulls the
@@ -51,17 +51,17 @@ ENV CGO_ENABLED=1 \
 RUN go mod tidy
 ARG VERSION=dev
 ARG YARA_VERSION
-# Two binaries: the CGO/libyara server (yarad), and the lean Sieve/LDA client
-# (yarad-scan) built CGO-free — pure Go, no libyara, a small static binary for a
-# mail-delivery host that only POSTs to a central yarad. main.libyaraVersion is
+# Two binaries: the CGO/libyara server (strixd), and the lean Sieve/LDA client
+# (strix-scan) built CGO-free — pure Go, no libyara, a small static binary for a
+# mail-delivery host that only POSTs to a central strixd. main.libyaraVersion is
 # baked from YARA_VERSION so `fetch-rules` can refuse a .yac built against a
 # different libyara.
 RUN go build -tags yara_static \
         -ldflags "-s -w -X main.version=${VERSION} -X main.libyaraVersion=${YARA_VERSION}" \
-        -o /out/yarad ./cmd/yarad \
+        -o /out/strixd ./cmd/strixd \
     && CGO_ENABLED=0 go build \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o /out/yarad-scan ./cmd/yarad-scan
+        -o /out/strix-scan ./cmd/strix-scan
 
 # ---- tests (built into the image build so CI fails on a bad commit) ---------
 FROM build AS test
@@ -70,10 +70,10 @@ RUN go vet ./... \
 
 # ---- binary export (release artifacts; not part of the runtime image) -------
 # `docker buildx build --target bin --platform linux/amd64,linux/arm64
-#  --output type=local,dest=dist .` drops just the yarad binary per arch.
+#  --output type=local,dest=dist .` drops just the strixd binary per arch.
 FROM scratch AS bin
-COPY --from=build /out/yarad /yarad
-COPY --from=build /out/yarad-scan /yarad-scan
+COPY --from=build /out/strixd /strixd
+COPY --from=build /out/strix-scan /strix-scan
 
 # ---- rules ------------------------------------------------------------------
 # FROM the yara stage so we have `yarac` (the libyara compiler) from the exact
@@ -87,7 +87,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY docker/fetch-rules.sh docker/compile-rules.sh /usr/local/bin/
 # Repo-tracked local rules (our own heuristics, e.g. the mraptor-style maldoc
 # rule) baked alongside the fetched public sets so they ship in the seed .yac.
-COPY docker/local-rules/ /usr/local/share/yarad-local-rules/
+COPY docker/local-rules/ /usr/local/share/mailstrix-local-rules/
 RUN chmod +x /usr/local/bin/fetch-rules.sh /usr/local/bin/compile-rules.sh
 ARG CACHEBUST=unset
 # LOCAL_ONLY=1 skips all network rule fetches; only docker/local-rules/ are
@@ -119,13 +119,13 @@ RUN LOCAL_ONLY="${LOCAL_ONLY}" \
         CAPE="${CAPE}" CAPE_REF="${CAPE_REF}" \
         YARAIFY="${YARAIFY}" YARAIFY_URL="${YARAIFY_URL}" \
         /usr/local/bin/fetch-rules.sh /rules/src \
-    && cp /usr/local/share/yarad-local-rules/*.yara /rules/src/ \
+    && cp /usr/local/share/mailstrix-local-rules/*.yara /rules/src/ \
     && /usr/local/bin/compile-rules.sh /rules/src /rules/compiled.yac \
     && mkdir -p /rules/local-src \
-    && cp /usr/local/share/yarad-local-rules/*.yara /rules/local-src/ \
+    && cp /usr/local/share/mailstrix-local-rules/*.yara /rules/local-src/ \
     && /usr/local/bin/compile-rules.sh /rules/local-src /rules/local.yac \
     && rm -rf /rules/src /rules/local-src \
-    && install -d -o 65532 -g 65532 /var/cache/yarad \
+    && install -d -o 65532 -g 65532 /var/cache/mailstrix \
     && yarac --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /rules/libyara.version
 
 # ---- rules export (for the home rule-generation cron; not a runtime image) --
@@ -141,37 +141,37 @@ COPY --from=rules /rules/sources.json /sources.json
 
 # ---- final (distroless, nonroot) -------------------------------------------
 FROM gcr.io/distroless/base-debian12:nonroot AS final
-COPY --from=build /out/yarad /usr/local/bin/yarad
-# The compiled bundle ships as a READ-ONLY seed under /usr/share/yarad. At
-# startup yarad copies it into the writable cache dir (YARAD_CACHE_DIR) when that
+COPY --from=build /out/strixd /usr/local/bin/strixd
+# The compiled bundle ships as a READ-ONLY seed under /usr/share/mailstrix. At
+# startup strixd copies it into the writable cache dir (MAILSTRIX_CACHE_DIR) when that
 # is empty/unreadable and serves from there, so a wiped cache bindmount self-heals
 # to this tested ruleset and a later `--fetch-rules` can refresh the cache copy
-# without touching the image. Mount /var/cache/yarad writable (the rootfs stays
+# without touching the image. Mount /var/cache/mailstrix writable (the rootfs stays
 # read-only); on a tmpfs mount it simply reseeds from /usr/share each boot.
 # Owned root on purpose: the seed is the trust anchor / immutable fallback, so the
 # nonroot service user must NOT be able to modify it even on a writable overlay
-# rootfs (only /var/cache/yarad is service-writable). No --chown = root:root; the
+# rootfs (only /var/cache/mailstrix is service-writable). No --chown = root:root; the
 # file stays world-readable (0644 from yarac) so nonroot can still read it to seed.
-COPY --from=rules /rules/compiled.yac /usr/share/yarad/compiled.yac
+COPY --from=rules /rules/compiled.yac /usr/share/mailstrix/compiled.yac
 # local.yac = ONLY the in-repo high-signal local rules, compiled separately. It is
-# the targeted ruleset for the oversized-buffer cost gate (YARAD_BIGFILE_THRESHOLD):
+# the targeted ruleset for the oversized-buffer cost gate (MAILSTRIX_BIGFILE_THRESHOLD):
 # a multi-MB buffer scanned against the full ~12k-rule bundle is unbounded and can
-# time out (fail-open => malware MISSED), so over the threshold yarad scans the raw
+# time out (fail-open => malware MISSED), so over the threshold strixd scans the raw
 # bytes against this small set instead — fast + the local dropper heuristics fire.
-COPY --from=rules /rules/local.yac /usr/share/yarad/local.yac
-COPY --from=rules /rules/sources.json /usr/share/yarad/sources.json
-COPY --from=build /src/NOTICE /usr/share/yarad/NOTICE
-# A writable cache dir owned by nonroot, so yarad can seed even with no bindmount
-# (a bindmount or tmpfs at /var/cache/yarad simply overlays it).
-COPY --from=rules --chown=nonroot:nonroot /var/cache/yarad /var/cache/yarad
-ENV YARAD_SEED_RULES=/usr/share/yarad/compiled.yac \
-    YARAD_BIGFILE_RULES=/usr/share/yarad/local.yac \
-    YARAD_CACHE_DIR=/var/cache/yarad \
-    YARAD_HOST=0.0.0.0 \
-    YARAD_PORT=8079
+COPY --from=rules /rules/local.yac /usr/share/mailstrix/local.yac
+COPY --from=rules /rules/sources.json /usr/share/mailstrix/sources.json
+COPY --from=build /src/NOTICE /usr/share/mailstrix/NOTICE
+# A writable cache dir owned by nonroot, so strixd can seed even with no bindmount
+# (a bindmount or tmpfs at /var/cache/mailstrix simply overlays it).
+COPY --from=rules --chown=nonroot:nonroot /var/cache/mailstrix /var/cache/mailstrix
+ENV MAILSTRIX_SEED_RULES=/usr/share/mailstrix/compiled.yac \
+    MAILSTRIX_BIGFILE_RULES=/usr/share/mailstrix/local.yac \
+    MAILSTRIX_CACHE_DIR=/var/cache/mailstrix \
+    MAILSTRIX_HOST=0.0.0.0 \
+    MAILSTRIX_PORT=8079
 EXPOSE 8079
 USER nonroot
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["/usr/local/bin/yarad", "health"]
-ENTRYPOINT ["/usr/local/bin/yarad"]
+    CMD ["/usr/local/bin/strixd", "health"]
+ENTRYPOINT ["/usr/local/bin/strixd"]
 CMD ["serve"]

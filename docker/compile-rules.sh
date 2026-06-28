@@ -11,7 +11,7 @@
 #     COMPILE and SCAN. The path conditions just never match raw mail bytes,
 #     which is the right behaviour for a mail scanner. VBA=0 is declared the same
 #     way for Didier's vba.yara (`VBA and any of (...)`): it must exist at compile
-#     so the file isn't skipped, defaults to 0 (off) for raw bytes, and yarad
+#     so the file isn't skipped, defaults to 0 (off) for raw bytes, and strixd
 #     flips it to 1 at scan time ONLY for decompressed macro streams.
 #   * per-file validation — a single file importing a module we didn't build in
 #     (cuckoo/magic) or with bad syntax would fail the whole yarac run, so each

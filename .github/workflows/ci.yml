@@ -1,4 +1,4 @@
-# yarad CI — the per-PR/push gate. Authoritative job is `docker` (self-contained
+# strixd CI — the per-PR/push gate. Authoritative job is `docker` (self-contained
 # libyara); `lint` + `scanners` run alongside. Deep/slow, low-per-PR-yield checks
 # (asan, codeql, fuzz) run MONTHLY in maintenance.yml, NOT on every PR. Exposed
 # via workflow_call so release.yml runs this same gate before publishing. Build
@@ -10,7 +10,7 @@ on:
     branches: [main, master]
   pull_request:
     # Per-item campaign PRs target the staging branch `dev` and are gated by the
-    # local CI gate only (tools/yarad-local-ci.sh); remote CI runs once on the
+    # local CI gate only (tools/strixd-local-ci.sh); remote CI runs once on the
     # aggregate dev->main PR. Filtering on the base branch keeps PRs into dev from
     # firing this workflow while still running it for PRs into main/master.
     branches: [main, master]
@@ -42,18 +42,18 @@ jobs:
 
       - name: build test stage (go vet + go test -race in-image)
         run: |
-          docker buildx build --target test -f docker/Dockerfile -t yarad-test \
+          docker buildx build --target test -f docker/Dockerfile -t strixd-test \
             --load \
-            --cache-from type=gha,scope=yarad-build \
-            --cache-to type=gha,mode=max,scope=yarad-build \
+            --cache-from type=gha,scope=strixd-build \
+            --cache-to type=gha,mode=max,scope=strixd-build \
             .
 
       - name: build final image
         run: |
-          docker buildx build --target final -f docker/Dockerfile -t yarad:ci \
+          docker buildx build --target final -f docker/Dockerfile -t strixd:ci \
             --load \
-            --cache-from type=gha,scope=yarad-build \
-            --cache-to type=gha,mode=max,scope=yarad-build \
+            --cache-from type=gha,scope=strixd-build \
+            --cache-to type=gha,mode=max,scope=strixd-build \
             --build-arg LOCAL_ONLY=1 \
             --build-arg CACHEBUST=rules-${{ hashFiles('docker/local-rules/**','docker/fetch-rules.sh','docker/compile-rules.sh','docker/Dockerfile') }} \
             .
@@ -66,10 +66,10 @@ jobs:
             --exit-code 1 \
             --ignore-unfixed \
             --timeout 5m \
-            yarad:ci
+            strixd:ci
 
       - name: smoke matrix (HTTP contract + every rule/extractor channel)
-        run: scripts/smoke.sh yarad:ci
+        run: scripts/smoke.sh strixd:ci
 
   lint:
     runs-on: ubuntu-latest
@@ -174,26 +174,26 @@ jobs:
             apt-get update >/dev/null 2>&1
             apt-get install -y --no-install-recommends spamassassin libhttp-tiny-perl perl >/dev/null 2>&1
             # Syntax-check the plugin against the installed Mail::SpamAssassin.
-            perl -I contrib/spamassassin -c contrib/spamassassin/Yarad.pm
+            perl -I contrib/spamassassin -c contrib/spamassassin/Mailstrix.pm
             # Hermetic unit tests: http mode via a mocked HTTP::Tiny, shellout mode
-            # via fake yarad-scan scripts. No running yarad needed.
-            prove -v -I contrib/spamassassin contrib/spamassassin/t/yarad.t
+            # via fake strix-scan scripts. No running strixd needed.
+            prove -v -I contrib/spamassassin contrib/spamassassin/t/mailstrix.t
           '
 
       - name: spamassassin --lint (real plugin + .pre/.cf load against installed SA)
         run: |
-          # perl -c above only syntax-checks Yarad.pm; it does NOT exercise the
-          # real plugin registration, the loadplugin in yarad.pre, or the rule
-          # syntax / meta deps in yarad.cf. --lint loads all three against the
+          # perl -c above only syntax-checks Mailstrix.pm; it does NOT exercise the
+          # real plugin registration, the loadplugin in strixd.pre, or the rule
+          # syntax / meta deps in strixd.cf. --lint loads all three against the
           # installed Mail::SpamAssassin and fails on any plugin-load, eval-rule,
           # or config error. Closes the long-standing "real-host lint" gap.
           docker run --rm -v "$PWD:/src" -w /src debian:trixie-slim sh -c '
             apt-get update >/dev/null 2>&1
             apt-get install -y --no-install-recommends spamassassin libhttp-tiny-perl perl >/dev/null 2>&1
             d=/etc/spamassassin
-            install -m644 contrib/spamassassin/Yarad.pm "$d/Yarad.pm"
-            install -m644 contrib/spamassassin/yarad.pre "$d/yarad.pre"
-            install -m644 contrib/spamassassin/yarad.cf  "$d/yarad.cf"
+            install -m644 contrib/spamassassin/Mailstrix.pm "$d/Mailstrix.pm"
+            install -m644 contrib/spamassassin/strixd.pre "$d/strixd.pre"
+            install -m644 contrib/spamassassin/strixd.cf  "$d/strixd.cf"
             spamassassin --lint
           '
 

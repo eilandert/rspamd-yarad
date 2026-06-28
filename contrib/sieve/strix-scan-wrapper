@@ -1,0 +1,34 @@
+#!/bin/sh
+# strix-scan-wrapper — bridge Dovecot Sieve `execute` to the central strixd.
+#
+# Install into the Dovecot sieve_execute_bin_dir (e.g.
+# /usr/lib/dovecot/sieve-execute/), chmod 0755, owned by the dovecot/vmail user.
+# Sieve `execute :pipe "strix-scan-wrapper"` feeds the message on stdin; this
+# wrapper forwards it to `strix-scan` and passes the exit code straight back:
+#   0 = clean (or scanner down -> fail open),  1 = YARA match.
+#
+# Config is read from /etc/dovecot/strix-scan.conf if present (see the example
+# in this directory); the defaults below assume strixd on the internal network.
+
+set -eu
+
+CONF=/etc/dovecot/strix-scan.conf
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+# Where the lean client lives, and how to reach the scanner.
+MAILSTRIX_SCAN_BIN="${MAILSTRIX_SCAN_BIN:-/usr/local/bin/strix-scan}"
+MAILSTRIX_URL="${MAILSTRIX_URL:-http://strixd.internal:8079}"
+MAILSTRIX_TOKEN_FILE="${MAILSTRIX_TOKEN_FILE:-/etc/dovecot/strixd.token}"
+MAILSTRIX_TIMEOUT="${MAILSTRIX_TIMEOUT:-10s}"
+
+# -fail-open (the default) makes a transport/HTTP error exit 0 so a scanner
+# outage never blocks or bounces mail. -quiet: rely on the exit code only.
+# The token is OPTIONAL: only pass -token-file when it actually exists, so this
+# wrapper works against a token-less (open) strixd too — a missing token file
+# must not turn every delivery into an exit-2 "quarantine everything".
+set -- -url "$MAILSTRIX_URL" -timeout "$MAILSTRIX_TIMEOUT" -fail-open -quiet
+if [ -n "$MAILSTRIX_TOKEN_FILE" ] && [ -r "$MAILSTRIX_TOKEN_FILE" ]; then
+    set -- "$@" -token-file "$MAILSTRIX_TOKEN_FILE"
+fi
+exec "$MAILSTRIX_SCAN_BIN" "$@"

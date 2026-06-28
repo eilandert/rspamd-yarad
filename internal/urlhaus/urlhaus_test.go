@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eilandert/rspamd-yarad/internal/urlcand"
+	"github.com/eilandert/mailstrix/internal/urlcand"
 )
 
 // TestWarmStartFromCache: a persisted feed snapshot in cacheDir is loaded into

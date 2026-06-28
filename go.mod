@@ -1,4 +1,4 @@
-module github.com/eilandert/rspamd-yarad
+module github.com/eilandert/mailstrix
 
 go 1.25.0
 

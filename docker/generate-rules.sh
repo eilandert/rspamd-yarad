@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # generate-rules.sh — build a fresh compiled YARA bundle and publish it as the
-# `rules-current` GitHub release asset, with a manifest yarad's `--fetch-rules`
+# `rules-current` GitHub release asset, with a manifest strixd's `--fetch-rules`
 # reads to decide whether to update.
 #
 # Run from a home cron. It compiles the .yac INSIDE the build image (the `rules`
-# stage), so `yarac` matches the libyara yarad links against — a .yac only loads
+# stage), so `yarac` matches the libyara strixd links against — a .yac only loads
 # on a matching libyara, so this is mandatory, not a convenience.
 #
 # The .yac (~37 MB) is published as a release ASSET, never committed to git, so
 # the repo history stays small. The release tag `rules-current` is rolling: each
 # run clobbers its assets.
 #
-# Manifest (compiled.yac.manifest.json), the file yarad fetches first:
-#   version    monotonic integer — the update decision (yarad skips if <= local)
+# Manifest (compiled.yac.manifest.json), the file strixd fetches first:
+#   version    monotonic integer — the update decision (strixd skips if <= local)
 #   generated  RFC3339 UTC timestamp
 #   checksum   "sha256:<hex>" of the .yac (integrity; the download crosses the net)
 #   libyara    the libyara version that compiled it (the skew guard)
@@ -28,7 +28,7 @@
 #   pin/toggle knobs as a direct image build.
 set -euo pipefail
 
-REPO="${REPO:-eilandert/rspamd-yarad}"
+REPO="${REPO:-eilandert/mailstrix}"
 TAG="${TAG:-rules-current}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"   # repo root (script lives in docker/)
 WORK="$(mktemp -d)"
@@ -49,14 +49,14 @@ shout() {  # shout <title> <body>
 shout_fail() {  # shout_fail <body> — fires at most once per run
     [ "$_SHOUTED_FAIL" -eq 0 ] || return 0
     _SHOUTED_FAIL=1
-    shout "yarad rules: regeneration FAILED" "$1"
+    shout "strixd rules: regeneration FAILED" "$1"
 }
 
 # Any unexpected abort (set -e / a failed command) shouts FAIL to #builds before
 # exiting, so a broken nightly is visible instead of silent. die() shouts its own
 # message; the once-guard stops a double-shout when die triggers ERR.
 # shellcheck disable=SC2154  # rc IS assigned (rc=$?) inside the trap-quoted string
-trap 'rc=$?; [ "$rc" -ne 0 ] && shout_fail "generate-rules.sh exited $rc — rules-current NOT updated. Check /opt/packages/log/yarad-generate-rules.log"; exit $rc' ERR
+trap 'rc=$?; [ "$rc" -ne 0 ] && shout_fail "generate-rules.sh exited $rc — rules-current NOT updated. Check /opt/packages/log/strixd-generate-rules.log"; exit $rc' ERR
 
 die()  { note "ERROR: $*"; shout_fail "$*"; exit 1; }
 
@@ -99,7 +99,7 @@ LIBYARA="$(tr -d '[:space:]' < "${WORK}/libyara.version")"
 #    does not exist. A release that EXISTS but whose manifest we failed to fetch
 #    (transient gh/network error) must ABORT — silently resetting to 1 would
 #    republish a LOWER version than the live one, breaking monotonicity and making
-#    yarad skip every future update ("version 1 <= local"). So: no release ⇒ start
+#    strixd skip every future update ("version 1 <= local"). So: no release ⇒ start
 #    at 1; release present but manifest unreadable ⇒ die.
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     gh release download "$TAG" --repo "$REPO" \
@@ -153,7 +153,7 @@ if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     note "creating rolling release ${TAG}"
     gh release create "$TAG" --repo "$REPO" \
         --title "Compiled rules (rolling)" \
-        --notes "Rolling compiled YARA bundle for \`yarad --fetch-rules\`. Assets are clobbered on each rule regeneration; see compiled.yac.manifest.json for the current version." \
+        --notes "Rolling compiled YARA bundle for \`strixd --fetch-rules\`. Assets are clobbered on each rule regeneration; see compiled.yac.manifest.json for the current version." \
         --latest=false
 fi
 gh release upload "$TAG" --repo "$REPO" --clobber "$YAC" "$MANIFEST"
@@ -163,5 +163,5 @@ note "published ${TAG}: compiled.yac (v${VERSION}) + manifest"
 # Shout success to Discord #builds. Size in MiB; rules count only if known (>0).
 SIZE_MIB="$(awk -v b="$SIZE" 'BEGIN{printf "%.1f", b/1048576}')"
 rules_line=""; [ "${RULES:-0}" -gt 0 ] 2>/dev/null && rules_line=", ${RULES} rules"
-shout "yarad rules: rules-current v${VERSION} published" \
-      "Fresh compiled YARA bundle published to \`${TAG}\` (v${PREV}→v${VERSION}${rules_line}, ${SIZE_MIB} MiB, libyara ${LIBYARA}). yarad \`--fetch-rules\` clients update on next check."
+shout "strixd rules: rules-current v${VERSION} published" \
+      "Fresh compiled YARA bundle published to \`${TAG}\` (v${PREV}→v${VERSION}${rules_line}, ${SIZE_MIB} MiB, libyara ${LIBYARA}). strixd \`--fetch-rules\` clients update on next check."

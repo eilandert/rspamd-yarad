@@ -1,16 +1,16 @@
-# Reference compose for yarad. In the mailscreen stack this service is added to
+# Reference compose for strixd. In the mailscreen stack this service is added to
 # /opt/docker/mailscreen/docker-compose.yml with a static IPv4 on the shared
 # internal network (rspamd's RBL-only resolver can't resolve docker names, so
 # the yara.lua plugin targets the IPv4 directly).
 services:
-  yarad:
-    image: eilandert/rspamd-yarad:latest
-    container_name: yarad
+  strixd:
+    image: eilandert/mailstrix:latest
+    container_name: strixd
     restart: unless-stopped
     # ~74 MB image + rules RSS (~90-200 MiB under macro/zip load) + in-flight
     # request buffers (max_inflight × max_body). 512m gives burst/GC headroom;
     # 256m was tight (measured ~198 MiB peak). Lower max_inflight/max_body or set
-    # an explicit YARAD_MAX_CONCURRENT if you must run leaner.
+    # an explicit MAILSTRIX_MAX_CONCURRENT if you must run leaner.
     # NOTE: enabling the MalwareBazaar full feed (below) adds ~40 MiB resident
     # (the hash set) plus a ~100-150 MiB transient spike while the daily dump is
     # downloaded + unzipped — raise mem_limit to ~768m if you turn it on.
@@ -24,45 +24,45 @@ services:
 
     environment:
       TZ: Europe/Amsterdam
-      YARAD_VERBOSE: "0"               # 1 for per-request access lines
+      MAILSTRIX_VERBOSE: "0"               # 1 for per-request access lines
 
       # --- Cache (built for high volume; mail is heavily duplicated) --------
-      YARAD_CACHE_TTL: "3600"          # seconds; 0 disables
-      # YARAD_CACHE_SIZE: "65536"      # in-memory LRU entries
+      MAILSTRIX_CACHE_TTL: "3600"          # seconds; 0 disables
+      # MAILSTRIX_CACHE_SIZE: "65536"      # in-memory LRU entries
       # Shared cache across replicas (else in-process LRU only):
-      # YARAD_REDIS_URL: "redis://valkey:6379/6"
-      # YARAD_REDIS_PREFIX: "yara:scan:"
+      # MAILSTRIX_REDIS_URL: "redis://valkey:6379/6"
+      # MAILSTRIX_REDIS_PREFIX: "yara:scan:"
 
       # --- Limits -----------------------------------------------------------
-      # YARAD_MAX_CONCURRENT: "auto"   # in-flight scan cap; "auto"=CPU count, or a number
-      # YARAD_BACKEND_TIMEOUT: "1"     # queue/admission wait budget (s)
-      # YARAD_SCAN_TIMEOUT: "8"        # per-scan libyara budget (s)
+      # MAILSTRIX_MAX_CONCURRENT: "auto"   # in-flight scan cap; "auto"=CPU count, or a number
+      # MAILSTRIX_BACKEND_TIMEOUT: "1"     # queue/admission wait budget (s)
+      # MAILSTRIX_SCAN_TIMEOUT: "8"        # per-scan libyara budget (s)
 
       # --- Threat-intel feeds (abuse.ch, opt-in) ----------------------------
       # One free abuse.ch Auth-Key (https://auth.abuse.ch/) enables BOTH feeds.
       # Register at https://auth.abuse.ch/ — the same key works for URLhaus AND
       # MalwareBazaar. Prefer the _FILE form (Docker secret, never an env value).
       # URLhaus — known malware-distribution URLs in the message/macros:
-      YARAD_URLHAUS_KEY_FILE: /run/secrets/abuse_ch_key
+      MAILSTRIX_URLHAUS_KEY_FILE: /run/secrets/abuse_ch_key
       # MalwareBazaar — exact SHA256 of each attachment vs known malware samples.
       # Full dump (~1M hashes) refreshed daily; see the mem_limit note above.
-      YARAD_MBAZAAR_KEY_FILE: /run/secrets/abuse_ch_key
-      # YARAD_MBAZAAR_REFRESH: "86400" # seconds; floor 300
-      # YARAD_MBAZAAR_FEED: "..."      # override feed URL (default: full dump)
+      MAILSTRIX_MBAZAAR_KEY_FILE: /run/secrets/abuse_ch_key
+      # MAILSTRIX_MBAZAAR_REFRESH: "86400" # seconds; floor 300
+      # MAILSTRIX_MBAZAAR_FEED: "..."      # override feed URL (default: full dump)
       # ThreatFox — recent IOC URL/domain feed (botnet C&C indicators). Same key.
-      YARAD_THREATFOX_KEY_FILE: /run/secrets/abuse_ch_key
-      # YARAD_THREATFOX_REFRESH: "21600"  # 6h; floor 300
+      MAILSTRIX_THREATFOX_KEY_FILE: /run/secrets/abuse_ch_key
+      # MAILSTRIX_THREATFOX_REFRESH: "21600"  # 6h; floor 300
       # Feodo Tracker — botnet C&C IP blocklist (public feed, no key needed).
-      # YARAD_FEODO: "1"               # enable Feodo IP blocklist (default: off)
-      # YARAD_FEODO_REFRESH: "21600"   # seconds; floor 300
+      # MAILSTRIX_FEODO: "1"               # enable Feodo IP blocklist (default: off)
+      # MAILSTRIX_FEODO_REFRESH: "21600"   # seconds; floor 300
 
       # --- Auth (required) --------------------------------------------------
-      # yarad refuses every /scan (503) until a token is set. The rspamd plugin
+      # strixd refuses every /scan (503) until a token is set. The rspamd plugin
       # must present the same value. Prefer the _FILE form (Docker secret).
-      YARAD_TOKEN_FILE: /run/secrets/yarad_token
+      MAILSTRIX_TOKEN_FILE: /run/secrets/mailstrix_token
 
     secrets:
-      - yarad_token
+      - mailstrix_token
       - abuse_ch_key
 
     # Rules are baked into the image (public curated bundle); no volume.
@@ -77,7 +77,7 @@ services:
       - no-new-privileges:true
 
     healthcheck:
-      test: ["CMD", "/usr/local/bin/yarad", "health"]
+      test: ["CMD", "/usr/local/bin/strixd", "health"]
       interval: 30s
       timeout: 5s
       start_period: 20s
@@ -89,7 +89,7 @@ networks:
     name: mailscreen_internal_net
 
 secrets:
-  yarad_token:
-    file: ./secrets/yarad_token.txt    # one line: the shared secret
+  mailstrix_token:
+    file: ./secrets/mailstrix_token.txt    # one line: the shared secret
   abuse_ch_key:
     file: ./secrets/abuse_ch_key.txt   # one line: abuse.ch Auth-Key (URLhaus + MalwareBazaar)

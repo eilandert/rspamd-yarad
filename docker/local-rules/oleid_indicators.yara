@@ -1,7 +1,7 @@
 /*
-  OLEID indicator rules -- score yarad's oleid-style structural markers.
+  OLEID indicator rules -- score mailstrix's oleid-style structural markers.
 
-  yarad's extract.fromOLEIndicators surfaces two structural indicators that
+  mailstrix's extract.fromOLEIndicators surfaces two structural indicators that
   oletools' oleid reports (oleid.py) as synthetic marker streams, invisible in
   the raw OLE2 bytes:
 
@@ -15,7 +15,7 @@
   can legitimately embed an OLE object. So these are scored LOW; the value is
   that they STACK with other signals (macros, external rels, suspicious
   keywords) the same scan already surfaces. Matching the marker prefix is
-  zero-FP by construction (the literal is only ever emitted by yarad).
+  zero-FP by construction (the literal is only ever emitted by mailstrix).
 
   Heuristic, tagged `suspicious heuristic` so yara.lua routes them to
   YARA_SUSPICIOUS (operator-tunable).
@@ -25,7 +25,7 @@
 rule OLEID_ObjectPool : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document embeds OLE objects (ObjectPool storage present) -- oleid indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "10"
@@ -38,7 +38,7 @@ rule OLEID_ObjectPool : maldoc heuristic suspicious marker
 rule OLEID_Flash : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document embeds a Shockwave Flash (SWF) object -- oleid indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "30"
@@ -51,20 +51,20 @@ rule OLEID_Flash : maldoc heuristic suspicious marker
 /*
   OLE2Link URL moniker -- CVE-2017-0199 / CVE-2017-8570.
 
-  yarad's extract.fromOLE2Link surfaces the URL carried by a Standard URL Moniker
+  mailstrix's extract.fromOLE2Link surfaces the URL carried by a Standard URL Moniker
   inside an embedded OLE2Link object as "OLE2LINK-URL <url>". When Office opens
   such a document it auto-resolves that moniker, fetching and executing a remote
   HTA/script payload -- the CVE-2017-0199 family. The marker is only emitted when
   the StdURLMoniker CLSID and a decodable URL are present, so this is an active
   remote-payload lure, not a mere presence indicator: scored HIGH.
 
-  The literal prefix is emitted only by yarad, so matching it is zero-FP by
+  The literal prefix is emitted only by mailstrix, so matching it is zero-FP by
   construction. An http(s)/file URL inside the marker raises the score further.
 */
 rule OLE2Link_URL_Moniker : maldoc exploit malware
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Embedded OLE2Link URL moniker (CVE-2017-0199 remote payload auto-load)"
         reference   = "https://www.cve.org/CVERecord?id=CVE-2017-0199"
         score       = "80"
@@ -78,7 +78,7 @@ rule OLE2Link_URL_Moniker : maldoc exploit malware
 
 /*
   OLETIMES anomaly -- oletools' oletimes (oletimes.py) reports CFB directory-entry
-  CreateTime/ModifyTime FILETIMEs. yarad's extract.fromOLETimes surfaces only the
+  CreateTime/ModifyTime FILETIMEs. mailstrix's extract.fromOLETimes surfaces only the
   two anomalies with no benign analogue:
 
     - "OLETIMES-FUTURE ..."    -- an entry stamped beyond now + 48h clock-skew
@@ -89,7 +89,7 @@ rule OLE2Link_URL_Moniker : maldoc exploit malware
       zero); a mass-fabricated CFB stamps every entry the same.
 
   Both are heuristic stacking signals, not conclusive alone -- scored LOW. The
-  marker prefix is emitted only by yarad, so matching it is zero-FP by
+  marker prefix is emitted only by mailstrix, so matching it is zero-FP by
   construction.
 
   Reference: https://github.com/decalage2/oletools/wiki/oletimes
@@ -97,7 +97,7 @@ rule OLE2Link_URL_Moniker : maldoc exploit malware
 rule OLETimes_FutureStamp : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "CFB directory entry stamped in the future -- oletimes anomaly"
         reference   = "https://github.com/decalage2/oletools/wiki/oletimes"
         score       = "20"
@@ -110,7 +110,7 @@ rule OLETimes_FutureStamp : maldoc heuristic suspicious
 rule OLETimes_SyntheticStamps : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Multiple CFB entries share one identical timestamp -- oletimes fabrication tell"
         reference   = "https://github.com/decalage2/oletools/wiki/oletimes"
         score       = "20"
@@ -123,7 +123,7 @@ rule OLETimes_SyntheticStamps : maldoc heuristic suspicious
 /*
   Encryption-type + digital-signature markers.
 
-  yarad's extract.fromOLEEncType / fromOLEEncInfo classify the encryption kind
+  mailstrix's extract.fromOLEEncType / fromOLEEncInfo classify the encryption kind
   rather than reporting presence only:
 
     - "ENCRYPTION-XOR" -- a BIFF8 FILEPASS record using XOR obfuscation. This is
@@ -139,14 +139,14 @@ rule OLETimes_SyntheticStamps : maldoc heuristic suspicious
   _signatures/_xmlsignatures storage. Benign on its own, so scored LOW; the value
   is that it STACKS with macro/keyword signals (a code-signed-looking maldoc).
 
-  All three literals are emitted only by yarad -> matching is zero-FP.
+  All three literals are emitted only by mailstrix -> matching is zero-FP.
 
   Reference: https://github.com/decalage2/oletools/wiki/oleid
 */
 rule Encrypted_XOR_Obfuscation : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document uses reversible XOR FILEPASS obfuscation (scanner-evasion tell)"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "40"
@@ -167,7 +167,7 @@ rule Encrypted_XOR_Obfuscation : maldoc heuristic suspicious marker
 rule DefaultPW_Decrypted : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "BIFF8 workbook decrypted with VelvetSweatshop default password -- scanner-evasion tell"
         reference   = "https://github.com/decalage2/oletools/blob/master/oletools/crypto.py"
         score       = "25"
@@ -180,7 +180,7 @@ rule DefaultPW_Decrypted : maldoc heuristic suspicious marker
 rule Encrypted_Document : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document is encrypted (RC4/AES) -- presence indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "15"
@@ -194,7 +194,7 @@ rule Encrypted_Document : maldoc heuristic suspicious marker
 rule Document_DigitalSignature : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document carries a digital-signature storage -- oleid indicator (stacks with macros)"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "10"
@@ -207,20 +207,20 @@ rule Document_DigitalSignature : maldoc heuristic suspicious marker
 /*
   DOC_SECURITY property (SummaryInformation PIDSI 0x13).
 
-  yarad's extract.docSecurityFlags parses the SummaryInformation property set and
+  mailstrix's extract.docSecurityFlags parses the SummaryInformation property set and
   emits "OLE-DOC-SECURITY-<value>" when the DOC_SECURITY bitfield is non-zero.
   The low bit (value & 1 == 1, i.e. odd values) means PasswordProtected --
   Office set a transparent/legacy password. On its own a protected document is
   benign, so this is a LOW stacking signal; weight comes from co-occurrence with
   macro / encryption markers from the same scan. The literal prefix is emitted
-  only by yarad -> matching is zero-FP by construction.
+  only by mailstrix -> matching is zero-FP by construction.
 
   Reference: https://learn.microsoft.com/openspecs/office_file_formats/ms-oshared
 */
 rule OLE_Doc_Security : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Document SummaryInformation DOC_SECURITY flag set (password/read-only protection)"
         reference   = "https://learn.microsoft.com/openspecs/office_file_formats/ms-oshared"
         score       = "10"
@@ -232,17 +232,17 @@ rule OLE_Doc_Security : maldoc heuristic suspicious marker
 
 /*
   Data appended past a CFB's FAT coverage (oletools "extra data after last
-  sector"). yarad's fromOLEExtraData emits an OLE2-EXTRA-DATA marker when a
+  sector"). mailstrix's fromOLEExtraData emits an OLE2-EXTRA-DATA marker when a
   non-zero blob (>= 512 bytes) is stapled after the last FAT-allocated sector —
   a common way to attach a second-stage payload to a benign .doc/.xls without
-  touching its directory or FAT. Marker is yarad-only, so matching it is zero-FP
+  touching its directory or FAT. Marker is mailstrix-only, so matching it is zero-FP
   by construction; the carved tail is also scanned by content rules separately.
   Reference: https://github.com/decalage2/oletools
 */
 rule OLE2_ExtraData : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Non-zero data appended past the last FAT-allocated sector of a CFB compound file (stapled payload)"
         reference   = "https://github.com/decalage2/oletools"
         score       = "20"
@@ -255,7 +255,7 @@ rule OLE2_ExtraData : maldoc heuristic suspicious marker
 rule PPT_VBA_Macro : maldoc heuristic marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Legacy PowerPoint (.ppt/.pps) file with an embedded VBA macro project (ExternalObjectStorage)"
         reference   = "https://github.com/decalage2/oletools/wiki/ppt_parser"
         score       = "60"
@@ -268,10 +268,10 @@ rule PPT_VBA_Macro : maldoc heuristic marker
 /*
   OOXML OLEID structural indicators (oleid2).
 
-  yarad's fromOOXMLZip emits four synthetic marker streams for structural
+  mailstrix's fromOOXMLZip emits four synthetic marker streams for structural
   indicators on the OOXML (ZIP-based) scan path, mirroring oletools' oleid.py
   for .docx/.xlsx/.xlsm/.pptx containers. The markers are only emitted by
-  yarad, so matching them is zero-FP by construction. All are stacking signals
+  mailstrix, so matching them is zero-FP by construction. All are stacking signals
   scored low-to-moderate; weight increases when they co-occur with macro/keyword
   rules from the same scan.
 
@@ -280,7 +280,7 @@ rule PPT_VBA_Macro : maldoc heuristic marker
 rule OLEID_OOXML_VBA_Present : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML document contains VBA macro bins that were successfully decoded -- oleid2 indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "20"
@@ -293,7 +293,7 @@ rule OLEID_OOXML_VBA_Present : maldoc heuristic suspicious marker
 rule OLEID_OOXML_ExternalRel : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML document has external relationships (template injection / NTLM relay lure) -- oleid2 indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "15"
@@ -306,7 +306,7 @@ rule OLEID_OOXML_ExternalRel : maldoc heuristic suspicious marker
 rule OLEID_OOXML_DDE : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML document contains DDE/DDEAUTO field instructions -- oleid2 indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "25"
@@ -319,7 +319,7 @@ rule OLEID_OOXML_DDE : maldoc heuristic suspicious marker
 rule OLEID_OOXML_XLM_Present : maldoc heuristic suspicious marker
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "OOXML workbook contains an Excel-4.0 (XLM) macrosheet -- oleid2 indicator"
         reference   = "https://github.com/decalage2/oletools/wiki/oleid"
         score       = "20"

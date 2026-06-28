@@ -5,9 +5,9 @@
   classes: an auto-execution trigger, a file-write/drop primitive, and an
   execution/launch primitive. This is the (AutoExec AND Write AND Execute)
   logic of oletools' mraptor, expressed as a YARA rule so it applies to every
-  buffer yarad scans — the decompressed VBA macro stream surfaced by the
+  buffer mailstrix scans — the decompressed VBA macro stream surfaced by the
   extract package AND the raw body / script carriers. There is deliberately NO
-  VBA external-variable gate (unlike Didier's vba.yara): yarad only sets VBA=1
+  VBA external-variable gate (unlike Didier's vba.yara): mailstrix only sets VBA=1
   on decompressed macro streams, and gating on it would miss non-Office droppers
   (HTA/WSF/JS, RTF-embedded scripts) and make the rule untestable against a raw
   buffer. The three-category AND is what keeps the false-positive rate low — a
@@ -22,7 +22,7 @@
 rule Maldoc_AutoExec_Write_Execute : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Macro/script combines auto-exec + file-write + execute (mraptor-style heuristic)"
         reference   = "https://github.com/decalage2/oletools/wiki/mraptor"
         score       = "55"

@@ -1,10 +1,10 @@
 #!/usr/bin/env lua
 --[[
 yara_feed_routing_spec.lua — standalone test (plain lua5.4, no rspamd) that the
-yarad synthetic feed rules route to their own dedicated scoring symbols instead
+strixd synthetic feed rules route to their own dedicated scoring symbols instead
 of falling through the generic YARA tier classification.
 
-yarad emits synthetic rule names per feed:
+strixd emits synthetic rule names per feed:
   URLHAUS_*       -> URLHAUS_MALWARE_URL
   MALWAREBAZAAR_* -> MALWAREBAZAAR_MALWARE
   THREATFOX_*     -> THREATFOX_IOC      (added: was falling through to YARA tiers)
@@ -47,7 +47,7 @@ local function route(rule)
   return SYM.default
 end
 
--- Every synthetic rule name yarad actually emits (see internal/threatfox,
+-- Every synthetic rule name strixd actually emits (see internal/threatfox,
 -- internal/feodo, internal/urlhaus, internal/mbazaar Rule()).
 check(route("THREATFOX_IOC_URL") == SYM.threatfox, "THREATFOX_IOC_URL -> THREATFOX_IOC")
 check(route("THREATFOX_IOC_DOMAIN") == SYM.threatfox, "THREATFOX_IOC_DOMAIN -> THREATFOX_IOC")

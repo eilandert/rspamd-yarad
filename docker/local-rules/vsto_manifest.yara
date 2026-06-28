@@ -26,7 +26,7 @@
 rule VSTO_Remote_Codebase : maldoc heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "VSTO/ClickOnce Office add-in (.vsto) manifest with a remote http(s) codebase -- add-in side-load download-exec vector"
         reference   = "https://attack.mitre.org/techniques/T1137/006/"
         tier        = "suspicious"

@@ -19,7 +19,7 @@
 rule Shellcode_GetEIP : shellcode evasion heuristic suspicious
 {
     meta:
-        author      = "yarad"
+        author      = "mailstrix"
         description = "Position-independent shellcode GetEIP prologue (call/pop E8 00000000 + pop, or Didier-Stevens fnstenv D9EE D97424F4 + pop) in a non-PE blob — a raw shellcode attachment or carved dropper payload"
         reference   = "https://www.virusbulletin.com/virusbulletin/2021/06/vb2021-paper-guloader-defeating-anti-analysis/"
         tier        = "suspicious"

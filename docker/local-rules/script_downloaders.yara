@@ -16,7 +16,7 @@
 rule PS1_IEX_IRM_DownloadCradle : powershell downloader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="PowerShell one-line download cradle: iex(irm <url>) / Invoke-Expression(Invoke-RestMethod)"
         score="65"
     strings:
@@ -30,7 +30,7 @@ rule PS1_IEX_IRM_DownloadCradle : powershell downloader heuristic suspicious
 rule VBS_GetObject_Scriptlet_SelfDelete : vbs downloader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="VBS remote scriptlet loader GetObject(\"script:http...\") that self-deletes via DeleteFile WScript.ScriptFullName"
         score="70"
     strings:
@@ -43,7 +43,7 @@ rule VBS_GetObject_Scriptlet_SelfDelete : vbs downloader heuristic suspicious
 rule Script_MSIExec_Remote_Package_Silent : downloader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="msiexec installing a remote package over http(s) silently (/q) — incl unicode-homoglyph -Package evasion"
         score="65"
     strings:
@@ -57,7 +57,7 @@ rule Script_MSIExec_Remote_Package_Silent : downloader heuristic suspicious
 rule VBS_WScriptShell_Run_TempBat_Hidden : vbs dropper heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="VBS WScript.Shell.Run launching a .bat from AppData\\Local\\Temp hidden and non-blocking (0, False)"
         score="65"
     strings:
@@ -87,7 +87,7 @@ rule VBS_WScriptShell_Run_TempBat_Hidden : vbs dropper heuristic suspicious
 rule PS1_Curl_Rundll32_PNG_Loader : powershell loader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="PowerShell curl.exe downloads a .png then runs it as a DLL via rundll32 <file>.png,<export> -- image-as-DLL execution (2c41d4f8)"
         score="75"
     strings:
@@ -103,7 +103,7 @@ rule PS1_Curl_Rundll32_PNG_Loader : powershell loader heuristic suspicious
 rule PS1_PSCredential_Password_Spray : powershell heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="PowerShell credential password-spray: ConvertTo-SecureString -AsPlainText -Force fed into a PSCredential, Start-Process -Credential in a loop over a password array (9f0a17d4)"
         score="70"
     strings:
@@ -117,7 +117,7 @@ rule PS1_PSCredential_Password_Spray : powershell heuristic suspicious
 rule PS1_Defender_Exclusion_Cleanup_Loader : powershell loader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="PowerShell loader that runs a dropped Temp .exe then removes the Defender exclusion path and self-deletes via $MyInvocation.MyCommand.Path (3ae711ab)"
         score="75"
     strings:
@@ -134,7 +134,7 @@ rule PS1_Defender_Exclusion_Cleanup_Loader : powershell loader heuristic suspici
 rule VBS_CustomBase64_MSXML_ExecuteGlobal : vbs downloader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="VBS custom-alphabet base64 decoder + MSXML2.ServerXMLHTTP GET of a remote payload, decoded and run via ExecuteGlobal (f6438c51)"
         score="75"
     strings:
@@ -168,7 +168,7 @@ rule VBS_CustomBase64_MSXML_ExecuteGlobal : vbs downloader heuristic suspicious
 rule PS1_RandomName_Temp_Download_Exec_Delete : powershell loader heuristic suspicious
 {
     meta:
-        author="yarad"
+        author="mailstrix"
         description="PowerShell dropper: Get-RandomName (Get-Random 0-61) temp filename, Join-Path $env:TEMP, Invoke-WebRequest -OutFile, execute, Remove-Item -- GitHub-raw payload family (0f21d86b/2033921b/d3fd81d8)"
         score="75"
     strings:

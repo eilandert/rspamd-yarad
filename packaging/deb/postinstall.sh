@@ -1,18 +1,18 @@
 #!/bin/sh
 set -e
 
-# Create the yarad service account (sysusers if available, else useradd).
+# Create the strixd service account (sysusers if available, else useradd).
 if command -v systemd-sysusers >/dev/null 2>&1; then
-    systemd-sysusers /usr/lib/sysusers.d/yarad.conf >/dev/null 2>&1 || true
-elif ! getent passwd yarad >/dev/null 2>&1; then
-    useradd --system --home-dir /var/lib/yarad --no-create-home \
-            --shell /usr/sbin/nologin --comment "yarad scanning daemon" yarad || true
+    systemd-sysusers /usr/lib/sysusers.d/strixd.conf >/dev/null 2>&1 || true
+elif ! getent passwd strixd >/dev/null 2>&1; then
+    useradd --system --home-dir /var/lib/mailstrix --no-create-home \
+            --shell /usr/sbin/nologin --comment "strixd scanning daemon" strixd || true
 fi
 
 # Own the state dir.
-if getent passwd yarad >/dev/null 2>&1; then
-    mkdir -p /var/lib/yarad/rules /var/cache/yarad
-    chown -R yarad:yarad /var/lib/yarad /var/cache/yarad
+if getent passwd strixd >/dev/null 2>&1; then
+    mkdir -p /var/lib/mailstrix/rules /var/cache/mailstrix
+    chown -R strixd:strixd /var/lib/mailstrix /var/cache/mailstrix
 fi
 
 if [ -d /run/systemd/system ]; then
@@ -22,12 +22,12 @@ if [ -d /run/systemd/system ]; then
     # stays stopped until the operator sets a token and enables it. try-restart
     # is a no-op when the unit is not running.
     if [ "$1" = configure ] && [ -n "$2" ]; then
-        systemctl try-restart yarad >/dev/null 2>&1 || true
+        systemctl try-restart strixd >/dev/null 2>&1 || true
     fi
 fi
 
 # First-time install ($2 empty) prints setup hints; an upgrade stays quiet.
 if [ -z "$2" ]; then
-    echo "yarad installed. Fetch rules:  sudo -u yarad yarad fetch-rules -cache-dir /var/cache/yarad"
-    echo "Set a token in /etc/yarad/yarad.env, then:  systemctl enable --now yarad"
+    echo "strixd installed. Fetch rules:  sudo -u strixd strixd fetch-rules -cache-dir /var/cache/mailstrix"
+    echo "Set a token in /etc/mailstrix/strixd.env, then:  systemctl enable --now strixd"
 fi
