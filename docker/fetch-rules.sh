@@ -326,9 +326,11 @@ if [ "$MAILSTRIX_PROFILE" = "mail" ]; then
     if [ -f "$FILTER_PY" ]; then
         echo "fetch-rules: mail profile — filtering fetched rules (filter-rules.py)"
         find "$OUT" \( -name '*.yar' -o -name '*.yara' \) | while read -r f; do
-            python3 "$FILTER_PY" "$f" "$f.filtered" \
-                && mv "$f.filtered" "$f" \
-                || fail "filter-rules failed on $(basename "$f")"
+            if python3 "$FILTER_PY" "$f" "$f.filtered"; then
+                mv "$f.filtered" "$f"
+            else
+                fail "filter-rules failed on $(basename "$f")"
+            fi
         done
     else
         fail "MAILSTRIX_PROFILE=mail but filter-rules.py not found at $FILTER_PY"
