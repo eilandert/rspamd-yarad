@@ -202,17 +202,9 @@ jobs:
             spamassassin --lint
           '
 
-      - name: semgrep (non-blocking until tuned)
-        continue-on-error: true
-        run: |
-          docker run --rm -v "$PWD:/src" -w /src \
-            semgrep/semgrep:1.119.0 \
-            semgrep scan --config auto \
-            --exclude 'vendor' --exclude 'testdata' \
-            --error
-
-  # NOTE: asan, codeql and fuzz are DEEP, slow, low-per-PR-yield checks — they
-  # run MONTHLY (+ on demand) in maintenance.yml, NOT on every PR. The per-PR
+  # NOTE: asan, codeql, fuzz, semgrep, arm64-race are DEEP, slow, or
+  # low-per-PR-yield checks — they run MONTHLY (+ on demand) in maintenance.yml,
+  # NOT on every PR. The per-PR
   # gate (docker + lint + scanners) stays fast; release.yml reuses THIS workflow
   # (workflow_call) so a tagged release re-runs docker+lint+scanners before
   # publishing. asan/codeql/fuzz run on the monthly cadence, not per release.

@@ -38,6 +38,10 @@ services:
       # MAILSTRIX_BACKEND_TIMEOUT: "1"     # queue/admission wait budget (s)
       # MAILSTRIX_SCAN_TIMEOUT: "8"        # per-scan libyara budget (s)
 
+      # --- Scoring policy ---------------------------------------------------
+      # Canary/shadow mode: integrations observe hits but do not score/block.
+      # MAILSTRIX_CANARY: "0"
+
       # --- Threat-intel feeds (abuse.ch, opt-in) ----------------------------
       # One free abuse.ch Auth-Key (https://auth.abuse.ch/) enables BOTH feeds.
       # Register at https://auth.abuse.ch/ — the same key works for URLhaus AND

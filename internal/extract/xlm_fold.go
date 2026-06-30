@@ -258,6 +258,15 @@ func foldXLMFormulaDepth(formula string, depth int, deadline time.Time) string {
 	if len(formula) == 0 || expired(deadline) {
 		return ""
 	}
+	// Depth gate at the single entry point so EVERY recursion path is bounded
+	// identically — foldFunctionCall checks the cap too, but foldMIDCall (and any
+	// future caller) recurses back here directly with depth+1, bypassing that
+	// check. A pathologically nested =MID(MID(MID(...))) would otherwise recurse
+	// one stack frame per level and overflow the stack (a fatal crash recover()
+	// cannot trap) before the coarse deadline check trips.
+	if depth >= maxXLMFoldDepth {
+		return ""
+	}
 
 	// Strip leading = if present.
 	s := formula

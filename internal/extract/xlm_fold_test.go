@@ -567,3 +567,61 @@ func TestFoldFunctionCallDepthCap(t *testing.T) {
 		t.Errorf("below cap want folded args, got %q", got)
 	}
 }
+
+// TestFoldXLMFormulaDeepNestingNoStackOverflow verifies the entry-point depth
+// gate in foldXLMFormulaDepth bounds EVERY recursion path — notably the MID fold
+// (foldMIDCall recurses back into foldXLMFormulaDepth with depth+1, bypassing the
+// foldFunctionCall cap). A pathologically nested formula must return cleanly, not
+// overflow the stack (a fatal crash recover() cannot trap). Audit 2026-06-30.
+func TestFoldXLMFormulaDeepNestingNoStackOverflow(t *testing.T) {
+	// Build =MID(MID(MID(...,1,9),1,9),...) nested far past maxXLMFoldDepth.
+	const nest = 5000
+	var b strings.Builder
+	b.WriteByte('=')
+	for i := 0; i < nest; i++ {
+		b.WriteString("MID(")
+	}
+	b.WriteString(`"payload"`)
+	for i := 0; i < nest; i++ {
+		b.WriteString(",1,9)")
+	}
+	// Must not panic / overflow; zero deadline so only the depth gate stops it.
+	_ = foldXLMFormula(b.String())
+
+	// Same for nested function calls reached via foldFunctionCall.
+	b.Reset()
+	b.WriteByte('=')
+	for i := 0; i < nest; i++ {
+		b.WriteString("EXEC(")
+	}
+	b.WriteString("CHAR(65)")
+	for i := 0; i < nest; i++ {
+		b.WriteString(")")
+	}
+	_ = foldXLMFormula(b.String())
+}
+
+// TestFoldXLMFormula_DeepNestingBounded ensures every recursion path (incl. the
+// MID fold path that recurses directly into foldXLMFormulaDepth, bypassing
+// foldFunctionCall's cap) is depth-gated at maxXLMFoldDepth — a pathologically
+// nested formula must return without overflowing the stack (a fatal crash that
+// recover() cannot trap).
+func TestFoldXLMFormula_DeepNestingBounded(t *testing.T) {
+	// Nest far deeper than maxXLMFoldDepth via MID(), the path the audit flagged.
+	formula := `"x"`
+	for i := 0; i < 5000; i++ {
+		formula = "MID(" + formula + ",1,9)"
+	}
+	formula = "=" + formula
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = foldXLMFormula(formula) // must not panic / stack-overflow
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("foldXLMFormula did not return on deeply-nested input — depth gate missing?")
+	}
+}

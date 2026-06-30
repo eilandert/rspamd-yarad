@@ -17,8 +17,9 @@
 //
 // Exit codes (scriptable):
 //
-//	0  clean — no rule matched (ALSO returned on a fail-open scanner outage)
-//	1  at least one rule matched
+//	0  clean — no actionable rule matched (also returned for log-only canary/
+//	   allowlisted hits, and on a fail-open scanner outage)
+//	1  at least one actionable rule matched
 //	2  usage / read / (fail-closed) transport error
 //
 // Fail-open is the delivery-safety default: a scanner outage, timeout, or non-200
@@ -48,8 +49,9 @@ func main() { os.Exit(run(os.Args[1:])) }
 // match is the subset of yarad's /scan response we render. Kept local so this
 // client shares no type (and thus no dependency) with the scanner package.
 type match struct {
-	Rule      string `json:"rule"`
-	Namespace string `json:"namespace"`
+	Rule      string            `json:"rule"`
+	Namespace string            `json:"namespace"`
+	Meta      map[string]string `json:"meta"`
 }
 
 type scanResponse struct {
@@ -135,11 +137,12 @@ func run(args []string) int {
 		return 2
 	}
 
-	if len(matches) == 0 {
+	actionable := actionableMatches(matches)
+	if len(actionable) == 0 {
 		return 0
 	}
 	if !*quiet {
-		for _, m := range matches {
+		for _, m := range actionable {
 			if m.Namespace != "" {
 				fmt.Printf("MATCH %s (%s)\n", m.Rule, m.Namespace)
 			} else {
@@ -148,6 +151,29 @@ func run(args []string) int {
 		}
 	}
 	return 1
+}
+
+func actionableMatches(matches []match) []match {
+	if len(matches) == 0 {
+		return nil
+	}
+	var out []match
+	for i, m := range matches {
+		if m.Meta != nil && (m.Meta["mailstrix_canary"] == "1" || m.Meta["mailstrix_allow"] == "1") {
+			if out == nil {
+				out = make([]match, 0, len(matches)-1)
+				out = append(out, matches[:i]...)
+			}
+			continue
+		}
+		if out != nil {
+			out = append(out, m)
+		}
+	}
+	if out == nil {
+		return matches
+	}
+	return out
 }
 
 // postScan POSTs buf to <url>/scan and returns the matches. It mirrors the

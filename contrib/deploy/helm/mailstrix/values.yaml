@@ -55,6 +55,7 @@ config:
   MAILSTRIX_MAX_CONCURRENT: ""   # in-flight scan cap; "auto"=CPU count, or a number
   MAILSTRIX_BACKEND_TIMEOUT: ""  # queue/admission wait budget (s)
   MAILSTRIX_SCAN_TIMEOUT: ""     # per-scan libyara budget (s)
+  MAILSTRIX_CANARY: ""           # "1" = log-only shadow mode; integrations observe but do not score/block
   MAILSTRIX_MBAZAAR_REFRESH: ""  # seconds; floor 300
   MAILSTRIX_THREATFOX_REFRESH: "" # 6h default; floor 300
   TZ: ""                     # e.g. "Europe/Amsterdam"

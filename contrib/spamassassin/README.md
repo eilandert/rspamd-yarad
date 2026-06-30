@@ -24,8 +24,8 @@ message. (Set `mailstrix_fail_open 0` to fire `MAILSTRIX_ERROR` instead.)
 
 | `mailstrix_mode` | How | What it sees |
 |--------------|-----|--------------|
-| `http` (default) | the plugin POSTs the message to `<mailstrix_url>/scan` itself using core `HTTP::Tiny` — no extra binary | every matched rule's name, namespace, tags **and `meta.score`** → graduated `MAILSTRIX` + `MAILSTRIX_HIGH` symbols |
-| `shellout` | the plugin pipes the message to the lean CGO-free [`strix-scan`](../sieve/) client and reads its exit code | hit / no-hit only (matched rule names from stdout) — reuses one audited transport |
+| `http` (default) | the plugin POSTs the message to `<mailstrix_url>/scan` itself using core `HTTP::Tiny` — no extra binary | every actionable rule's name, namespace, tags **and `meta.score`** → graduated `MAILSTRIX` + `MAILSTRIX_HIGH` symbols; `mailstrix_canary` / `mailstrix_allow` hits stay log-only |
+| `shellout` | the plugin pipes the message to the lean CGO-free [`strix-scan`](../sieve/) client and reads its exit code | actionable hit / clean-or-log-only only (matched rule names from stdout) — reuses one audited transport |
 
 Use **http** unless you already deploy `strix-scan` on the box and want a single
 transport for both Sieve and SpamAssassin.
@@ -76,9 +76,10 @@ transport for both Sieve and SpamAssassin.
    spamassassin -t < sample.eml | grep -i MAILSTRIX
    ```
 
-   On a match you'll see `MAILSTRIX` (and `MAILSTRIX_HIGH` on a confident hit in http
-   mode) in the report, and an `X-Spam-Yara:` header listing the fired YARA rule
-   names.
+   On an actionable match you'll see `MAILSTRIX` (and `MAILSTRIX_HIGH` on a
+   confident hit in http mode) in the report, and an `X-Spam-Yara:` header listing
+   the fired YARA rule names. Canary/shadow and allowlisted hits are observed by
+   strixd but do not score in SpamAssassin.
 
    For development, hermetic unit tests (no running strixd — http mode mocks
    `HTTP::Tiny`, shellout mode uses fake `strix-scan` scripts) live in
