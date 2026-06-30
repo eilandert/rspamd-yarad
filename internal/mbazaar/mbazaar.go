@@ -307,7 +307,9 @@ func openCSV(body []byte) (io.ReadCloser, error) {
 			}
 			// Skip an entry whose declared decompressed size already exceeds the
 			// cap — defends against a zip bomb before a single byte is inflated.
-			if f.UncompressedSize64 > uint64(maxDecompressedBytes) {
+			// maxDecompressedBytes is always positive (1<<30); the uint64 cast is
+			// safe. #nosec G115 -- int64 constant is positive, no overflow.
+			if f.UncompressedSize64 > uint64(maxDecompressedBytes) { //#nosec G115
 				continue
 			}
 			return f.Open()

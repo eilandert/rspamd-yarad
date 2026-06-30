@@ -397,7 +397,10 @@ local function check_cb(task)
             local tag = ""
             if m.rule:find("_DOMAIN") then tag = tag .. " (domain)" end
             if m.rule:find("_DEOBF") then tag = tag .. " (deobf)" end
-            add(is_canary and settings.canary_symbol or is_allowlisted and settings.allow_symbol or settings.threatfox_symbol, url .. tag, "tf:" .. url)
+            local sym = is_canary and settings.canary_symbol
+                     or is_allowlisted and settings.allow_symbol
+                     or settings.threatfox_symbol
+            add(sym, url .. tag, "tf:" .. url)
           else
             -- Classify into a scoring tier, and show "rule (source-file)" so a
             -- generic rule name (e.g. "http") is traceable to the ruleset that
