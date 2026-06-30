@@ -242,7 +242,7 @@ func TestParseFeedDecompressedCapTruncates(t *testing.T) {
 	// Each row ~140 bytes; 50 rows >> 256-byte cap, so reading must stop early.
 	for i := 0; i < 50; i++ {
 		b.WriteString("\"2024-01-01\",\"")
-		b.WriteString(hashOf(string(rune('a' + i%26)) + string(rune(i))))
+		b.WriteString(hashOf(string(rune('a'+i%26)) + string(rune(i))))
 		b.WriteString("\",\"md5\",\"sha1\",\"anon\",\"x\"\n")
 	}
 	hs, err := parseFeed(b.Bytes())

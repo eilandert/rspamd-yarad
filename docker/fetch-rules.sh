@@ -356,6 +356,10 @@ if [ "$MAILSTRIX_PROFILE" = "mail" ]; then
         # and the script would continue and ship a partially-filtered bundle.
         _flist="$(mktemp)"
         find "$OUT" \( -name '*.yar' -o -name '*.yara' \) -print > "$_flist"
+        # SC2094: shellcheck false-positive — rm inside the loop and the
+        # redirection source are the same var, but rm only runs on failure (then
+        # the loop exits); the done-redirect is NOT a pipeline read+write.
+        # shellcheck disable=SC2094
         while read -r f; do
             if python3 "$FILTER_PY" "$f" "$f.filtered"; then
                 mv "$f.filtered" "$f"
