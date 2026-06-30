@@ -2,6 +2,7 @@ package mailstrix
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -157,6 +158,47 @@ func TestICAPRESPMODInfected200(t *testing.T) {
 	}
 	if !strings.Contains(resp, "MALWARE_TEST") {
 		t.Errorf("infected: threat name missing:\n%s", resp)
+	}
+}
+
+func TestICAPLogOnlyMatchesAreClean(t *testing.T) {
+	for name, meta := range map[string]map[string]string{
+		"canary": {"mailstrix_canary": "1"},
+		"allow":  {"mailstrix_allow": "1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newTestServer(&fakeEngine{count: 1, fp: "fp", matches: []Match{{Rule: "LOG_ONLY", Meta: meta}}}, "")
+			addr := startTestICAPServer(t, s)
+
+			req := icapRESPMODRequest(addr, "shadow payload", true)
+			resp := doICAP(t, addr, req)
+			if !strings.HasPrefix(resp, "ICAP/1.0 204 No Modification") {
+				t.Errorf("log-only match should be clean 204, got:\n%s", resp)
+			}
+			if strings.Contains(resp, "X-Infection-Found") {
+				t.Errorf("log-only match must not emit infection headers:\n%s", resp)
+			}
+		})
+	}
+}
+
+func TestICAPMixedLogOnlyAndActionableBlocks(t *testing.T) {
+	s := newTestServer(&fakeEngine{count: 1, fp: "fp", matches: []Match{
+		{Rule: "LOG_ONLY", Meta: map[string]string{"mailstrix_canary": "1"}},
+		{Rule: "REAL_MALWARE"},
+	}}, "")
+	addr := startTestICAPServer(t, s)
+
+	req := icapRESPMODRequest(addr, "malware payload", true)
+	resp := doICAP(t, addr, req)
+	if !strings.HasPrefix(resp, "ICAP/1.0 200 OK") {
+		t.Errorf("mixed actionable match should block, got:\n%s", resp)
+	}
+	if strings.Contains(resp, "LOG_ONLY") {
+		t.Errorf("replacement should name the actionable threat, not log-only match:\n%s", resp)
+	}
+	if !strings.Contains(resp, "REAL_MALWARE") {
+		t.Errorf("actionable threat missing:\n%s", resp)
 	}
 }
 
@@ -593,5 +635,21 @@ func TestICAPPreviewContinueOversizeBody(t *testing.T) {
 
 	if !strings.HasPrefix(resp, "ICAP/1.0 413") {
 		t.Errorf("oversize combined body: want 413, got:\n%s", resp)
+	}
+}
+
+// TestReadICAPChunkedBodyHeaderLineBounded ensures a chunk-size line with no
+// terminating '\n' cannot grow the read buffer without bound (per-connection
+// memory DoS). A multi-megabyte run of hex digits with no newline must be
+// rejected promptly, not buffered whole.
+func TestReadICAPChunkedBodyHeaderLineBounded(t *testing.T) {
+	// 4 MiB of '0' with no '\n' — a legit chunk header is a few bytes.
+	junk := strings.Repeat("0", 4<<20)
+	_, _, err := readICAPChunkedBody(bufio.NewReader(strings.NewReader(junk)), 1024)
+	if err == nil {
+		t.Fatal("expected error on oversized chunk-header line, got nil")
+	}
+	if !errors.Is(err, errICAPChunkHeaderTooLong) {
+		t.Fatalf("want errICAPChunkHeaderTooLong, got %v", err)
 	}
 }

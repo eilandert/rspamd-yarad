@@ -182,3 +182,89 @@ func TestCloseNilSafeAndIdempotent(t *testing.T) {
 		t.Fatal("Close did not close the stop channel")
 	}
 }
+
+// TestParseFeedDecompressedCap verifies the DECOMPRESSED CSV stream is bounded
+// (zip-bomb guard) — lowering maxDecompressedBytes truncates the read mid-CSV so
+// rows past the cap are not loaded, and the parser does not OOM/hang.
+func TestParseFeedDecompressedCap(t *testing.T) {
+	orig := maxDecompressedBytes
+	defer func() { maxDecompressedBytes = orig }()
+
+	// Build a large plaintext CSV: header + many rows. We will cap so only the
+	// first chunk is read.
+	var b bytes.Buffer
+	b.WriteString("# first_seen_utc,sha256_hash,md5_hash\n")
+	const rows = 5000
+	for i := 0; i < rows; i++ {
+		// 64-hex sha256 derived from i, unique per row.
+		sum := sha256.Sum256([]byte{byte(i), byte(i >> 8)})
+		b.WriteString("\"2024-01-01 00:00:00\",\"" + hex.EncodeToString(sum[:]) + "\",\"x\"\n")
+	}
+	full := b.Bytes()
+
+	// Uncapped: all rows load.
+	maxDecompressedBytes = orig
+	hsFull, err := parseFeed(full)
+	if err != nil {
+		t.Fatalf("uncapped parseFeed: %v", err)
+	}
+	if len(hsFull.m) != rows {
+		t.Fatalf("uncapped: got %d hashes, want %d", len(hsFull.m), rows)
+	}
+
+	// Capped to the first ~512 bytes: only a handful of rows survive the
+	// io.LimitReader, proving the decompressed stream is bounded.
+	maxDecompressedBytes = 512
+	hsCapped, err := parseFeed(full)
+	if err != nil {
+		t.Fatalf("capped parseFeed: %v", err)
+	}
+	if len(hsCapped.m) >= rows {
+		t.Fatalf("cap not enforced: got %d hashes, expected far fewer than %d", len(hsCapped.m), rows)
+	}
+	if len(hsCapped.m) == 0 {
+		t.Fatalf("cap too aggressive: expected at least one row within 512B")
+	}
+}
+
+// TestParseFeedDecompressedCapTruncates verifies the decompressed-stream cap
+// (maxDecompressedBytes) bounds CSV reading, so a zip bomb / oversized plain feed
+// cannot OOM the container. urlhaus/threatfox apply the same io.LimitReader cap;
+// mbazaar was missing it (audit 2026-06-30). Lower the var so we don't allocate
+// a real gigabyte.
+func TestParseFeedDecompressedCapTruncates(t *testing.T) {
+	orig := maxDecompressedBytes
+	maxDecompressedBytes = 256 // bytes — well below the multi-row CSV below
+	defer func() { maxDecompressedBytes = orig }()
+
+	var b bytes.Buffer
+	b.WriteString("# header\n")
+	// Each row ~140 bytes; 50 rows >> 256-byte cap, so reading must stop early.
+	for i := 0; i < 50; i++ {
+		b.WriteString("\"2024-01-01\",\"")
+		b.WriteString(hashOf(string(rune('a' + i%26)) + string(rune(i))))
+		b.WriteString("\",\"md5\",\"sha1\",\"anon\",\"x\"\n")
+	}
+	hs, err := parseFeed(b.Bytes())
+	if err != nil {
+		t.Fatalf("parseFeed: %v", err)
+	}
+	// With a 256-byte cap only the first row or two survive; never all 50.
+	if len(hs.m) >= 50 {
+		t.Fatalf("decompressed cap not enforced: got %d hashes, want truncated", len(hs.m))
+	}
+}
+
+// TestOpenCSVSkipsOversizedZipEntry verifies a zip entry declaring a
+// decompressed size over the cap is skipped (zip-bomb guard).
+func TestOpenCSVSkipsOversizedZipEntry(t *testing.T) {
+	orig := maxDecompressedBytes
+	maxDecompressedBytes = 16 // tiny: the real CSV's UncompressedSize64 exceeds it
+	defer func() { maxDecompressedBytes = orig }()
+
+	z := zipOf(t, []byte(sampleCSV))
+	_, err := openCSV(z)
+	if err == nil {
+		t.Fatal("openCSV should reject a zip whose only entry exceeds the cap")
+	}
+}

@@ -200,8 +200,7 @@ type Scanner struct {
 	// Fingerprint() so two scanners (or the same scanner before/after SIGHUP) with
 	// different denylists produce different verdict-cache keys — see #251 class.
 	// Updated atomically whenever the effective denylist changes (Reload or
-	// ReloadDenylist). Allowlist is NOT folded: it only tags matches (never
-	// adds/removes them), so the match-set identity is denylist-only.
+	// ReloadDenylist).
 	denylistFP atomic.Pointer[string]
 
 	// topMatches counts rule hits since the last reload for /version observability.
@@ -630,8 +629,12 @@ func (s *Scanner) Reload() error {
 // rules changes WHICH rules can fire, so two scanners with different denylists
 // must never share a verdict-cache entry. denylistFP is a hash of the SORTED
 // deny set (deterministic across replicas) updated on every Reload/ReloadDenylist.
-// Allowlist is intentionally NOT folded: it only tags matches (mailstrix_allow=1),
-// never adds or removes them, so the match-set identity is unchanged by it.
+//
+// Finally, the scoring policy is folded too. Allowlist and canary do not change
+// which rules fire, but they DO change response metadata that shipped consumers
+// use for scoring/blocking decisions. The verdict cache stores full Match values
+// including Meta, and Redis L2 survives restarts, so scanners with different
+// allowlist/canary policy must not share cached response metadata.
 func (s *Scanner) Fingerprint() string {
 	fp := ""
 	if p := s.fp.Load(); p != nil {
@@ -645,7 +648,20 @@ func (s *Scanner) Fingerprint() string {
 	if p := s.denylistFP.Load(); p != nil {
 		dl = *p
 	}
-	return extract.Version + ":" + fp + ":" + ch + ":" + dl
+	return extract.Version + ":" + fp + ":" + ch + ":" + dl + ":" + s.scoringPolicyHash()
+}
+
+func (s *Scanner) scoringPolicyHash() string {
+	h := sha256.New()
+	if s.canary {
+		_, _ = h.Write([]byte("canary=1\n"))
+	} else {
+		_, _ = h.Write([]byte("canary=0\n"))
+	}
+	_, _ = h.Write([]byte("allow="))
+	_, _ = h.Write([]byte(denylistHash(s.allowlist)))
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:8])
 }
 
 // denylistHash returns a short deterministic hash of the SORTED deny set so the
@@ -1473,7 +1489,8 @@ func (s *Scanner) Scan(buf []byte, meta ScanMeta) ([]Match, error) {
 	}
 	// Drop denylisted rule names (public-ruleset demo/noise rules) before the
 	// synthetic feed matches are added, so MALWAREBAZAAR_*/URLHAUS_* are never
-	// affected by the rule denylist.
+	// affected by the rule denylist. Allowlist tags for YARA matches are applied
+	// here; a final response-tagging pass below covers synthetic feed hits too.
 	out = s.filterDenied(out)
 	// Record rule names for the top-matches counter (observability via /version).
 	if len(out) > 0 {
@@ -1582,6 +1599,7 @@ func (s *Scanner) Scan(buf []byte, meta ScanMeta) ([]Match, error) {
 			addFeedHits(stream)
 		}
 	}
+	out = s.applyResponseTags(out)
 	// The raw scan failed but extraction/feeds recovered nothing: preserve the
 	// original fail-open-with-error contract (the server logs it as "no match").
 	// When something WAS recovered, the matches stand — that is the whole point of
@@ -1599,7 +1617,7 @@ func (s *Scanner) Scan(buf []byte, meta ScanMeta) ([]Match, error) {
 // preserved; a no-op when both lists are empty. Deny wins if a name is in both.
 func (s *Scanner) filterDenied(in []Match) []Match {
 	deny := s.denylist.Load()
-	if (deny == nil || len(*deny) == 0) && len(s.allowlist) == 0 && !s.canary {
+	if (deny == nil || len(*deny) == 0) && len(s.allowlist) == 0 {
 		return in
 	}
 	if len(in) == 0 {
@@ -1621,13 +1639,55 @@ func (s *Scanner) filterDenied(in []Match) []Match {
 		}
 		out = append(out, m)
 	}
-	if s.canary {
-		for i := range out {
-			if out[i].Meta == nil {
-				out[i].Meta = map[string]string{}
-			}
-			out[i].Meta["mailstrix_canary"] = "1"
+	return out
+}
+
+func (s *Scanner) applyResponseTags(in []Match) []Match {
+	if len(in) == 0 || (len(s.allowlist) == 0 && !s.canary) {
+		return in
+	}
+	for i := range in {
+		name := strings.ToLower(in[i].Rule)
+		_, allow := s.allowlist[name]
+		if !allow && !s.canary {
+			continue
 		}
+		if in[i].Meta == nil {
+			in[i].Meta = map[string]string{}
+		}
+		if allow {
+			in[i].Meta["mailstrix_allow"] = "1"
+		}
+		if s.canary {
+			in[i].Meta["mailstrix_canary"] = "1"
+		}
+	}
+	return in
+}
+
+func matchIsLogOnly(m Match) bool {
+	return m.Meta != nil && (m.Meta["mailstrix_canary"] == "1" || m.Meta["mailstrix_allow"] == "1")
+}
+
+func actionableMatches(matches []Match) []Match {
+	if len(matches) == 0 {
+		return nil
+	}
+	var out []Match
+	for i, m := range matches {
+		if matchIsLogOnly(m) {
+			if out == nil {
+				out = make([]Match, 0, len(matches)-1)
+				out = append(out, matches[:i]...)
+			}
+			continue
+		}
+		if out != nil {
+			out = append(out, m)
+		}
+	}
+	if out == nil {
+		return matches
 	}
 	return out
 }

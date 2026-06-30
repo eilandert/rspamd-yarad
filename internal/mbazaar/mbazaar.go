@@ -50,12 +50,20 @@ const (
 	// fetchTimeout is generous: the full dump is tens of MB to download + unzip.
 	fetchTimeout = 5 * time.Minute
 	// maxFeedBytes caps the DOWNLOADED (zipped) body so a runaway feed can't
-	// exhaust memory. The decompressed CSV is streamed record-by-record, so only
-	// the resulting digest set (bounded by maxHashes) grows, not the whole CSV.
+	// exhaust memory.
 	maxFeedBytes = 512 << 20
+	// maxDecompressedBytes (var below) caps the DECOMPRESSED CSV stream. maxFeedBytes
+	// only bounds the zipped body, so without this a zip bomb (or a single forged
+	// multi-GB record csv.Reader must buffer whole) decompresses unbounded and OOMs
+	// the mem-limited container before the maxHashes break can fire — mirrors the
+	// io.LimitReader cap urlhaus/threatfox already apply.
 	// maxHashes bounds the set size defensively (MalwareBazaar is ~1M samples).
 	maxHashes = 10_000_000
 )
+
+// maxDecompressedBytes is a var (not const) so tests can lower it to exercise the
+// truncation path without allocating a real gigabyte.
+var maxDecompressedBytes int64 = 1 << 30
 
 var errFeedTooLarge = errors.New("malwarebazaar feed exceeds byte limit")
 
@@ -260,7 +268,7 @@ func parseFeed(body []byte) (*hashSet, error) {
 	defer rc.Close()
 
 	hs := &hashSet{m: make(map[[32]byte]struct{})}
-	cr := csv.NewReader(rc)
+	cr := csv.NewReader(io.LimitReader(rc, maxDecompressedBytes))
 	cr.Comment = '#'
 	cr.FieldsPerRecord = -1
 	cr.LazyQuotes = true
@@ -294,9 +302,15 @@ func openCSV(body []byte) (io.ReadCloser, error) {
 			return nil, err
 		}
 		for _, f := range zr.File {
-			if !f.FileInfo().IsDir() {
-				return f.Open()
+			if f.FileInfo().IsDir() {
+				continue
 			}
+			// Skip an entry whose declared decompressed size already exceeds the
+			// cap — defends against a zip bomb before a single byte is inflated.
+			if f.UncompressedSize64 > uint64(maxDecompressedBytes) {
+				continue
+			}
+			return f.Open()
 		}
 		return nil, errors.New("malwarebazaar: empty zip dump")
 	}

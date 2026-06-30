@@ -15,8 +15,8 @@ regress:
       process_results and asserts each synthetic prefix lands on its feed symbol,
       NOT the generic default;
   (2) source grounding — parse the actual plugin + groups.conf and assert the
-      THREATFOX_ branch exists, the symbol is registered, and
-      groups.conf defines a weight for it.
+      THREATFOX_ branch exists, canary/allowlist routing exists, the symbols are
+      registered, and groups.conf defines weights for them.
 
 Run: lua5.4 rspamd/test/mailstrix_feed_routing_spec.lua   (exit 0 = pass, 1 = fail)
 --]]
@@ -35,12 +35,18 @@ local SYM = {
   urlhaus   = "URLHAUS_MALWARE_URL",
   mbazaar   = "MALWAREBAZAAR_MALWARE",
   threatfox = "THREATFOX_IOC",
+  canary    = "STRIX_CANARY",
+  allow     = "STRIX_ALLOWLISTED",
   default   = "STRIX",
 }
-local function route(rule)
-  if rule:sub(1, 8) == "URLHAUS_" then return SYM.urlhaus end
-  if rule:sub(1, 14) == "MALWAREBAZAAR_" then return SYM.mbazaar end
-  if rule:sub(1, 10) == "THREATFOX_" then return SYM.threatfox end
+local function route(rule, meta)
+  local is_canary = type(meta) == "table" and meta.mailstrix_canary == "1"
+  local is_allowlisted = type(meta) == "table" and meta.mailstrix_allow == "1"
+  if rule:sub(1, 8) == "URLHAUS_" then return is_canary and SYM.canary or is_allowlisted and SYM.allow or SYM.urlhaus end
+  if rule:sub(1, 14) == "MALWAREBAZAAR_" then return is_canary and SYM.canary or is_allowlisted and SYM.allow or SYM.mbazaar end
+  if rule:sub(1, 10) == "THREATFOX_" then return is_canary and SYM.canary or is_allowlisted and SYM.allow or SYM.threatfox end
+  if is_canary then return SYM.canary end
+  if is_allowlisted then return SYM.allow end
   return SYM.default
 end
 
@@ -55,6 +61,11 @@ check(route("THREATFOX_IOC_URL") ~= SYM.default, "ThreatFox must NOT fall throug
 check(route("Cobalt_Strike") == SYM.default, "a normal rule still routes to the default tier")
 check(route("URLHAUS_MALWARE_URL") == SYM.urlhaus, "URLhaus still routes to its own symbol")
 check(route("MALWAREBAZAAR_MALWARE") == SYM.mbazaar, "MalwareBazaar still routes to its own symbol")
+for _, rule in ipairs({ "URLHAUS_MALWARE_URL", "MALWAREBAZAAR_MALWARE", "THREATFOX_IOC_URL", "Normal_Yara" }) do
+  check(route(rule, { mailstrix_canary = "1" }) == SYM.canary, rule .. " canary -> STRIX_CANARY")
+  check(route(rule, { mailstrix_allow = "1" }) == SYM.allow, rule .. " allowlist -> STRIX_ALLOWLISTED")
+  check(route(rule, { mailstrix_canary = "1", mailstrix_allow = "1" }) == SYM.canary, rule .. " canary wins over allowlist")
+end
 
 -- (2) Source grounding. Resolve paths relative to this script so it runs from
 -- any CWD (CI invokes it from the repo root).
@@ -70,8 +81,13 @@ check(plugin ~= nil, "mailstrix.lua plugin readable")
 if plugin then
   check(plugin:find('"THREATFOX_"', 1, true) ~= nil, "plugin has a THREATFOX_ routing branch")
   check(plugin:find("threatfox_symbol", 1, true) ~= nil, "plugin defines threatfox_symbol")
+  check(plugin:find("canary_symbol", 1, true) ~= nil, "plugin defines canary_symbol")
+  check(plugin:find("mailstrix_canary", 1, true) ~= nil, "plugin routes mailstrix_canary metadata")
+  check(plugin:find("is_allowlisted", 1, true) ~= nil, "plugin routes mailstrix_allow metadata")
   -- The symbol must be registered (virtual child) so rspamd scores it.
   check(plugin:find("settings.threatfox_symbol,", 1, true) ~= nil, "threatfox_symbol registered")
+  check(plugin:find("settings.canary_symbol,", 1, true) ~= nil, "canary_symbol registered")
+  check(plugin:find("settings.allow_symbol,", 1, true) ~= nil, "allow_symbol registered")
   -- Feodo support was removed: no FEODO_ branch / symbol may remain.
   check(plugin:find("FEODO", 1, true) == nil, "plugin has no residual FEODO reference")
   check(plugin:find("feodo", 1, true) == nil, "plugin has no residual feodo reference")
@@ -86,6 +102,10 @@ if groups then
     return block ~= nil and block:find("weight%s*=") ~= nil
   end
   check(has_weighted_symbol("THREATFOX_IOC"), "groups.conf defines a weight for THREATFOX_IOC")
+  check(has_weighted_symbol("STRIX_ALLOWLISTED"), "groups.conf defines a weight for STRIX_ALLOWLISTED")
+  check(has_weighted_symbol("STRIX_CANARY"), "groups.conf defines a weight for STRIX_CANARY")
+  local block = groups:match('"STRIX_CANARY"%s*{(.-)}')
+  check(block ~= nil and block:find("weight%s*=%s*0%.0") ~= nil, "STRIX_CANARY weight is 0.0")
   check(groups:find("FEODO", 1, true) == nil, "groups.conf has no residual FEODO symbol")
 end
 

@@ -353,7 +353,7 @@ func rc4MD5VerifyPW(password string, salt, encVerifier, encVerifierHash []byte) 
 	verifierHash := make([]byte, 16)
 	c.XORKeyStream(verifierHash, encVerifierHash[:16])
 	actual := md5.Sum(verifier) //#nosec G401 -- protocol-mandated MD5
-	return actual[:] != nil && string(actual[:]) == string(verifierHash)
+	return string(actual[:]) == string(verifierHash)
 }
 
 // rc4MD5Decrypt decrypts the raw BIFF8 workbook stream encrypted with RC4 v1.1.
@@ -722,10 +722,13 @@ func parseStandardInfo(data []byte) (standardInfo, error) {
 	if len(data) < 8 {
 		return standardInfo{}, errTruncated
 	}
-	headerSize := int(binary.LittleEndian.Uint32(data[4:8]))
-	if len(data) < 8+headerSize {
+	// Compute the bound in int64 before narrowing: on a 32-bit build a uint32
+	// > 2^31 narrows to a negative int, passes the < check, and panics the slice.
+	headerSize64 := int64(binary.LittleEndian.Uint32(data[4:8]))
+	if headerSize64 < 0 || 8+headerSize64 > int64(len(data)) {
 		return standardInfo{}, errTruncated
 	}
+	headerSize := int(headerSize64)
 	header := data[8 : 8+headerSize]
 	// EncryptionHeader field offsets (each 4 bytes):
 	// [0] flags, [4] sizeExtra, [8] algId, [12] algIdHash, [16] keySize, [20] providerType, ...
@@ -946,10 +949,12 @@ func fromDefaultPWRC4(ole *oleparse.OLEFile, res *Result, deadline time.Time) {
 				if len(cryptoBody) < 8 {
 					return
 				}
-				headerSize := int(binary.LittleEndian.Uint32(cryptoBody[4:8]))
-				if len(cryptoBody) < 8+headerSize {
+				// int64 bound before narrowing — 32-bit overflow guard (see parseStandardInfo).
+				headerSize64 := int64(binary.LittleEndian.Uint32(cryptoBody[4:8]))
+				if headerSize64 < 0 || 8+headerSize64 > int64(len(cryptoBody)) {
 					return
 				}
+				headerSize := int(headerSize64)
 				header := cryptoBody[8 : 8+headerSize]
 				if len(header) < 20 {
 					return

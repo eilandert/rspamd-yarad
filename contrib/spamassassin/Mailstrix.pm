@@ -17,15 +17,17 @@
 #   http      — the plugin POSTs the message to <mailstrix_url>/scan itself with the
 #               core Perl HTTP::Tiny (no extra binary on the box) and parses the
 #               JSON verdict. This is the RICH mode: it sees every matched rule's
-#               name, namespace, tags and meta.score, so it can fire graduated
-#               symbols (MAILSTRIX on any hit, MAILSTRIX_HIGH on a high-score hit) and
-#               expose the matched rule names as a tag for headers/logging.
+#               name, namespace, tags and meta.score, so actionable hits can fire
+#               graduated symbols (MAILSTRIX on any hit, MAILSTRIX_HIGH on a
+#               high-score hit) and expose the matched rule names as a tag for
+#               headers/logging. mailstrix_canary/mailstrix_allow hits stay log-only.
 #
 #   shellout  — the plugin pipes the message to the lean, CGO-free `strix-scan`
 #               client (the same binary the Sieve path uses) and reads its exit
-#               code: 0 clean, 1 match. Hit/no-hit only — no per-rule score — but
-#               it reuses one audited client and one fail-open code path. Use this
-#               when you already deploy `strix-scan` and want a single transport.
+#               code: 0 clean/log-only, 1 actionable match. Hit/no-hit only — no
+#               per-rule score — but it reuses one audited client and one fail-open
+#               code path. Use this when you already deploy `strix-scan` and want a
+#               single transport.
 #
 # Both modes FAIL OPEN by default (mailstrix_fail_open 1): a scanner outage, timeout
 # or transport error is treated as CLEAN so a down backend never tags every
@@ -277,6 +279,10 @@ sub _scan_http {
     my $high = $conf->{mailstrix_high_score} // 75;
     for my $m (@{$data->{matches}}) {
         my $name = $m->{rule} // next;
+        next if $m->{meta} && (
+            ($m->{meta}{mailstrix_canary} // '') eq '1'
+            || ($m->{meta}{mailstrix_allow} // '') eq '1'
+        );
         push @{$pms->{mailstrix_rules}}, $name;
         $pms->{mailstrix_matched} = 1;
         my $score = $m->{meta} && defined $m->{meta}{score} ? $m->{meta}{score} + 0 : undef;

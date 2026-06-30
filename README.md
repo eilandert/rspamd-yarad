@@ -122,6 +122,8 @@ be scaled, restarted, or reload its rules on its own. Same shape as the
   URL/domain IOCs; all cached, fail-open.
 - **Drops/demotes noisy rules** — `MAILSTRIX_RULE_DENYLIST` (suppress) and
   `MAILSTRIX_RULE_ALLOWLIST` (keep but score log-only) without patching upstream.
+- **Canary mode** — `MAILSTRIX_CANARY=1` returns hits as log-only metadata so
+  integrations can observe rule/feed behaviour without scoring or blocking mail.
 - **Caches verdicts** — `SHA256(body)` → matches (LRU+TTL), plus request
   coalescing and an optional shared Redis/Valkey L2, for a high-volume firehose.
 - **Fails open, always** — a scan error, timeout, or libyara panic is reported
@@ -285,8 +287,8 @@ cat message | strix-scan -url http://strixd.internal:8079
 
 | | |
 |--|--|
-| **Exit 0** | clean — no rule matched (**also** on a fail-open scanner outage) |
-| **Exit 1** | at least one rule matched |
+| **Exit 0** | clean — no actionable rule matched (**also** for canary/allowlisted log-only hits and on a fail-open scanner outage) |
+| **Exit 1** | at least one actionable rule matched |
 | **Exit 2** | usage / read / (fail-closed) transport error |
 
 - **Fails open by default** — any transport error, timeout, or non-200 is treated
@@ -343,6 +345,7 @@ Every setting is an env var and a `serve` CLI flag (flag > env > default).
 | `MAILSTRIX_BIGFILE_RULES` | baked seed | optional `.yac` bundle scanned for oversized buffers; unset ⇒ the baked `local.yac` seed set |
 | `MAILSTRIX_RULE_DENYLIST` | `http` | comma-sep rule names to suppress (case-insensitive); set empty to disable |
 | `MAILSTRIX_RULE_ALLOWLIST` | — | comma-sep rule names to force log-only (kept + tagged `mailstrix_allow`); deny wins if in both |
+| `MAILSTRIX_CANARY` | `0` | tag every match as log-only canary/shadow output; shipped rspamd/SpamAssassin/Sieve/ICAP integrations observe but do not score/block these hits |
 | `MAILSTRIX_ICAP_ADDR` | — (disabled) | TCP address for the optional ICAP listener (RFC 3507), e.g. `:1344`. When set, strixd also accepts REQMOD/RESPMOD from ICAP-aware proxies (Squid, c-icap). Unset = ICAP disabled. No ICAP-level auth; gate by network/firewall. |
 | `MAILSTRIX_VERBOSE` | off | log one line per request |
 | `MAILSTRIX_LOG_STDOUT` | off | info/access logs to stdout (errors always stderr) |
@@ -677,6 +680,8 @@ The [`contrib/rspamd/`](contrib/rspamd/) directory has everything the rspamd sid
   | `URLHAUS_MALWARE_URL` | known malware URL (options = the URLs) | `8.0` |
   | `MALWAREBAZAAR_MALWARE` | attachment SHA256 = known sample (option = digest) | `10.0` |
   | `THREATFOX_IOC` | ThreatFox URL/domain IOC (options = the URLs) | `7.0` |
+  | `STRIX_ALLOWLISTED` | allowlisted log-only hit (options = rule/feed details) | `0.0` |
+  | `STRIX_CANARY` | canary/shadow hit (options = rule/feed details) | `0.0` |
 
   Tiers stack, capped by the group `max_score`. The classifier lives in the
   plugin, so retuning is just an rspamd reload (no strixd rebuild).

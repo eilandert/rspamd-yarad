@@ -59,6 +59,70 @@ func TestCanaryEnvParsing(t *testing.T) {
 	}
 }
 
+func TestCanaryTagsFeedMatches(t *testing.T) {
+	s := newURLhausScannerCanary(t, true)
+	defer s.Close()
+
+	matches, err := scanT(s, []byte(feedURLBody), ScanMeta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := feedMatches(matches)
+	if len(fm) == 0 {
+		t.Fatal("precondition: URLhaus feed must match the test URL")
+	}
+	for _, m := range fm {
+		if m.Meta["mailstrix_canary"] != "1" {
+			t.Fatalf("feed match missing canary metadata: %+v", m)
+		}
+	}
+}
+
+func TestFingerprintFoldsScoringPolicy(t *testing.T) {
+	dir := writeRules(t, eicarRule)
+	mk := func(canary bool, allow map[string]struct{}) *Scanner {
+		t.Helper()
+		cfg := &Config{RulesDir: dir, ScanTimeout: 0, Canary: canary, RuleAllowlist: allow}
+		cfg.sanitize()
+		s, err := NewScanner(cfg, func(string, ...any) {})
+		if err != nil {
+			t.Fatalf("NewScanner: %v", err)
+		}
+		return s
+	}
+
+	base := mk(false, nil).Fingerprint()
+	if got := mk(true, nil).Fingerprint(); got == base {
+		t.Fatal("canary policy did not move Fingerprint; cached response metadata could cross modes")
+	}
+	allow := map[string]struct{}{"eicar_test_file": {}}
+	if got := mk(false, allow).Fingerprint(); got == base {
+		t.Fatal("allowlist policy did not move Fingerprint; cached response metadata could cross policies")
+	}
+	allowSame := map[string]struct{}{"eicar_test_file": {}}
+	if a, b := mk(false, allow).Fingerprint(), mk(false, allowSame).Fingerprint(); a != b {
+		t.Fatalf("same allowlist policy must hash deterministically: %s != %s", a, b)
+	}
+}
+
+func TestActionableMatchesSkipsLogOnlyWithoutMutatingInput(t *testing.T) {
+	in := []Match{
+		{Rule: "A", Meta: map[string]string{"mailstrix_canary": "1"}},
+		{Rule: "B"},
+		{Rule: "C", Meta: map[string]string{"mailstrix_allow": "1"}},
+	}
+	got := actionableMatches(in)
+	if len(got) != 1 || got[0].Rule != "B" {
+		t.Fatalf("actionableMatches = %+v, want only B", got)
+	}
+	if in[0].Rule != "A" || in[1].Rule != "B" || in[2].Rule != "C" {
+		t.Fatalf("actionableMatches mutated input slice: %+v", in)
+	}
+	if got := actionableMatches([]Match{{Rule: "A"}, {Rule: "B"}}); len(got) != 2 {
+		t.Fatalf("all-actionable case changed length: %+v", got)
+	}
+}
+
 // TestReloadDenylistMergesFile verifies that ReloadDenylist reads a file and
 // merges its entries with the env-based baseDenylist.
 func TestReloadDenylistMergesFile(t *testing.T) {

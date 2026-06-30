@@ -11,14 +11,15 @@ YARA rules and no libyara** of its own.
                                           ▼
                                    strix-scan-wrapper ─▶ strix-scan ──HTTP /scan──▶  strixd serve
                                           │                                          (rules + libyara)
-                          exit 0 clean / 1 match ◀───────────────────────────────── {matches}
+                          exit 0 clean/log-only / 1 actionable match ◀───────────── {matches}
                                           │
-                              match ─▶ flag + fileinto Junk/Yara
-                              clean ─▶ deliver normally
+                              actionable match ─▶ flag + fileinto Junk/Yara
+                              clean/log-only ─▶ deliver normally
 ```
 
 `strix-scan` **fails open**: any transport error, timeout, or non-200 is treated
-as *clean* (exit 0), so a scanner outage never blocks or bounces delivery.
+as *clean* (exit 0), so a scanner outage never blocks or bounces delivery. Canary
+and allowlisted hits are also log-only (exit 0).
 
 ## Files here
 

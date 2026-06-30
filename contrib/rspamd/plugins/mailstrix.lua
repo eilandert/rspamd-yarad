@@ -25,7 +25,9 @@ uncategorized hit — with the matched rules as that symbol's options, shown as
 "rule (source-file.yar)" (traceable, and actionable by force_actions/multimap).
 URLhaus malware-URL hits go to URLHAUS_MALWARE_URL; MalwareBazaar exact
 attachment-hash hits go to MALWAREBAZAAR_MALWARE. Per-tier weights live in
-groups.conf (group "STRIX").
+groups.conf (group "STRIX"). Matches tagged meta.mailstrix_canary="1" are routed
+to STRIX_CANARY, and meta.mailstrix_allow="1" to STRIX_ALLOWLISTED: both are
+zero-weight observation symbols.
 
 Scope is configurable (scan_message / scan_parts): the full rfc822 message,
 each attachment part, or both.
@@ -76,6 +78,9 @@ local settings = {
   -- but routed here so groups.conf can score it 0 — a known-FP rule demoted
   -- without dropping it or patching the source.
   allow_symbol = "STRIX_ALLOWLISTED",
+  -- Canary/shadow symbol for strixd MAILSTRIX_CANARY responses. Canary hits are
+  -- visible in history but never contribute to score.
+  canary_symbol = "STRIX_CANARY",
   -- What to scan. At least one must be true or the plugin does nothing.
   scan_message = true,         -- the whole rfc822 message in one scan
   scan_parts = true,          -- each MIME part (attachment) separately
@@ -367,6 +372,8 @@ local function check_cb(task)
     post(task, job.buf, job.what, job.fname, effort, function(matches)
       for _, m in ipairs(matches) do
         if m.rule then
+          local is_canary = type(m.meta) == "table" and m.meta.mailstrix_canary == "1"
+          local is_allowlisted = type(m.meta) == "table" and m.meta.mailstrix_allow == "1"
           if m.rule:sub(1, 8) == "URLHAUS_" then
             -- For URLhaus hits the interesting thing is the malicious URL, not
             -- the (constant) rule name, so show the URL itself as the option;
@@ -376,12 +383,12 @@ local function check_cb(task)
             local tag = ""
             if m.rule:find("_HOST") then tag = tag .. " (host)" end
             if m.rule:find("_DEOBF") then tag = tag .. " (deobf)" end
-            add(settings.urlhaus_symbol, url .. tag, "u:" .. url)
+            add(is_canary and settings.canary_symbol or is_allowlisted and settings.allow_symbol or settings.urlhaus_symbol, url .. tag, "u:" .. url)
           elseif m.rule:sub(1, 14) == "MALWAREBAZAAR_" then
             -- Exact attachment-hash hit: show the SHA256 (from meta) as the
             -- option, deduped on the hash, so the history names the bad file.
             local sha = (type(m.meta) == "table" and m.meta.sha256) or m.rule
-            add(settings.mbazaar_symbol, sha, "mb:" .. sha)
+            add(is_canary and settings.canary_symbol or is_allowlisted and settings.allow_symbol or settings.mbazaar_symbol, sha, "mb:" .. sha)
           elseif m.rule:sub(1, 10) == "THREATFOX_" then
             -- ThreatFox IOC: the matched URL/domain is the interesting datum;
             -- show it as the option, deduped on the URL. _DOMAIN = host-level
@@ -390,7 +397,7 @@ local function check_cb(task)
             local tag = ""
             if m.rule:find("_DOMAIN") then tag = tag .. " (domain)" end
             if m.rule:find("_DEOBF") then tag = tag .. " (deobf)" end
-            add(settings.threatfox_symbol, url .. tag, "tf:" .. url)
+            add(is_canary and settings.canary_symbol or is_allowlisted and settings.allow_symbol or settings.threatfox_symbol, url .. tag, "tf:" .. url)
           else
             -- Classify into a scoring tier, and show "rule (source-file)" so a
             -- generic rule name (e.g. "http") is traceable to the ruleset that
@@ -420,7 +427,9 @@ local function check_cb(task)
             local key = "y:" .. (m.namespace or "") .. "\31" .. m.rule
             -- strixd allowlist: a known-FP rule demoted to log-only. Keep it
             -- visible but route to the 0-weight symbol instead of a scoring tier.
-            if type(m.meta) == "table" and m.meta.mailstrix_allow == "1" then
+            if is_canary then
+              add(settings.canary_symbol, opt, key, 1.0)
+            elseif is_allowlisted then
               add(settings.allow_symbol, opt, key, 1.0)
             else
               -- Modulate within the tier by the rule's meta.score (1.0 if absent).
@@ -484,6 +493,7 @@ for _, s in ipairs({
   settings.mbazaar_symbol,
   settings.threatfox_symbol,
   settings.allow_symbol,
+  settings.canary_symbol,
 }) do
   rspamd_config:register_symbol({ name = s, type = "virtual", parent = id })
 end

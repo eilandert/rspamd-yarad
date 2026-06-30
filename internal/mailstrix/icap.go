@@ -237,8 +237,12 @@ func (s *Server) handleICAPMod(w io.Writer, br *bufio.Reader, method string, hdr
 		return icapWrite200Clean(w, s.engine.Fingerprint())
 	}
 
-	// Admission gate (same budget as /scan).
-	ctx := context.Background()
+	// Admission gate (same budget as /scan). Bound the wait: the ICAP conn has no
+	// request-scoped context like the HTTP path (server.go:476), so without a
+	// timeout a stuck acquire on a dead follower pins an admission slot for the
+	// full scan lifetime. BackendTimeout matches the scan budget.
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.BackendTimeout)
+	defer cancel()
 	if !s.acquireOn(ctx, s.admit) {
 		s.metrics.busy.Add(1)
 		s.errf("ICAP 503 busy (max_inflight=%d reached)", s.cfg.MaxInflight)
@@ -252,13 +256,18 @@ func (s *Server) handleICAPMod(w io.Writer, br *bufio.Reader, method string, hdr
 	icapMeta := ScanMeta{RawKey: streamDedupKey(buf)}
 	key := fp + ":icap:" + string(icapMeta.RawKey[:])
 	matches, cacheStatus := s.lookupOrScan(ctx, key, buf, icapMeta)
+	actionable := actionableMatches(matches)
 
-	if len(matches) > 0 {
+	if len(actionable) > 0 {
 		s.metrics.icapInfected.Add(1)
-		s.logf("ICAP %s %dB cache=%s %.1fms -> %d matches %s", method, len(buf), cacheStatus, msSince(t0), len(matches), ruleNames(matches))
-		return icapWriteInfected(w, fp, matches)
+		s.logf("ICAP %s %dB cache=%s %.1fms -> %d actionable matches %s", method, len(buf), cacheStatus, msSince(t0), len(actionable), ruleNames(actionable))
+		return icapWriteInfected(w, fp, actionable)
 	}
-	s.vlogf("ICAP %s %dB cache=%s %.1fms -> 0 matches", method, len(buf), cacheStatus, msSince(t0))
+	if len(matches) > 0 {
+		s.logf("ICAP %s %dB cache=%s %.1fms -> %d log-only matches %s", method, len(buf), cacheStatus, msSince(t0), len(matches), ruleNames(matches))
+	} else {
+		s.vlogf("ICAP %s %dB cache=%s %.1fms -> 0 matches", method, len(buf), cacheStatus, msSince(t0))
+	}
 	if allow204 {
 		_, err := io.WriteString(w, icapProtoVersion+" 204 No Modification\r\n\r\n")
 		return err
@@ -296,6 +305,34 @@ func parseICAPEncapsulated(v string) []icapSection {
 
 var errICAPBodyTooLarge = errors.New("ICAP body exceeds MaxBody limit")
 
+var errICAPChunkHeaderTooLong = errors.New("ICAP chunk header line too long")
+
+// maxICAPChunkHeaderLine bounds a single chunk-size line ("<hex>[; ieof]\r\n").
+// A legitimate header is a few bytes; without this cap an attacker can stream a
+// multi-gigabyte size line with no '\n' and ReadString buffers it all before the
+// MaxBody check fires — unbounded per-connection memory on a fail-open service.
+const maxICAPChunkHeaderLine = 256
+
+// readICAPChunkHeaderLine reads one CRLF-terminated chunk header, capped at
+// maxICAPChunkHeaderLine bytes so a missing '\n' cannot grow the buffer without
+// bound. Returns the line without the trailing CRLF.
+func readICAPChunkHeaderLine(r *bufio.Reader) (string, error) {
+	var sb strings.Builder
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		if b == '\n' {
+			return strings.TrimRight(sb.String(), "\r"), nil
+		}
+		if sb.Len() >= maxICAPChunkHeaderLine {
+			return "", errICAPChunkHeaderTooLong
+		}
+		sb.WriteByte(b)
+	}
+}
+
 // readICAPChunkedBody reads an ICAP chunked body (RFC 3507 §4.5) up to maxBytes.
 // Each chunk: "<hex-size>[; ieof]\r\n<data>\r\n". Terminal chunk: "0\r\n\r\n".
 //
@@ -308,11 +345,10 @@ var errICAPBodyTooLarge = errors.New("ICAP body exceeds MaxBody limit")
 func readICAPChunkedBody(r *bufio.Reader, maxBytes int64) ([]byte, bool, error) {
 	var out []byte
 	for {
-		line, err := r.ReadString('\n')
+		raw, err := readICAPChunkHeaderLine(r)
 		if err != nil {
 			return nil, false, err
 		}
-		raw := strings.TrimRight(line, "\r\n")
 		// Detect and strip ICAP "ieof" extension: "3c; ieof" or "0 ; ieof"
 		hasIEOF := false
 		ext := raw

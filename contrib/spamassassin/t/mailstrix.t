@@ -74,6 +74,39 @@ sub fresh_pms { return { mailstrix_matched => 0, mailstrix_high => 0, mailstrix_
     is($self->check_mailstrix($pms), 0, 'check_mailstrix off on clean');
 }
 
+# ---- http mode: canary / allowlisted matches are log-only ----
+{
+    for my $case (
+        ['canary', '{"matches":[{"rule":"Shadow_Hit","meta":{"mailstrix_canary":"1","score":99}}]}'],
+        ['allow',  '{"matches":[{"rule":"Noisy_Hit","meta":{"mailstrix_allow":"1","score":99}}]}'],
+    ) {
+        my ($name, $json) = @$case;
+        no warnings 'redefine';
+        local *HTTP::Tiny::post = sub {
+            return { success => 1, status => 200, content => $json };
+        };
+        my $pms = fresh_pms();
+        $self->_scan_http($pms, { mailstrix_url => 'http://x', mailstrix_high_score => 75 }, \(my $m = 'm'));
+        is($pms->{mailstrix_matched}, 0, "http $name: log-only match does not score");
+        is($pms->{mailstrix_high}, 0, "http $name: log-only high score ignored");
+        is_deeply($pms->{mailstrix_rules}, [], "http $name: log-only rule not added to scoring list");
+    }
+}
+
+# ---- http mode: mixed log-only + actionable still scores the actionable hit ----
+{
+    no warnings 'redefine';
+    local *HTTP::Tiny::post = sub {
+        return { success => 1, status => 200,
+                 content => '{"matches":[{"rule":"Shadow","meta":{"mailstrix_canary":"1","score":99}},{"rule":"Real","meta":{"score":10}}]}' };
+    };
+    my $pms = fresh_pms();
+    $self->_scan_http($pms, { mailstrix_url => 'http://x', mailstrix_high_score => 75 }, \(my $m = 'm'));
+    is($pms->{mailstrix_matched}, 1, 'http mixed: actionable match still scores');
+    is($pms->{mailstrix_high}, 0, 'http mixed: canary high score ignored');
+    is_deeply($pms->{mailstrix_rules}, ['Real'], 'http mixed: only actionable rule captured');
+}
+
 # ---- http mode: transport error -> undef (caller applies fail-open) ----
 {
     no warnings 'redefine';

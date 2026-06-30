@@ -41,6 +41,10 @@ const (
 // newURLhausScanner creates a Scanner with a URLhaus checker warm-started from
 // a stub CSV in a temp dir. The caller must defer s.Close().
 func newURLhausScanner(t *testing.T) *Scanner {
+	return newURLhausScannerCanary(t, false)
+}
+
+func newURLhausScannerCanary(t *testing.T, canary bool) *Scanner {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "urlhaus.csv"), []byte(feedCSV), 0o600); err != nil {
@@ -53,6 +57,7 @@ func newURLhausScanner(t *testing.T) *Scanner {
 		CacheDir:       dir,
 		URLhausKey:     "test-key", // non-empty → checker enabled; warm-start from cache
 		URLhausMaxURLs: 64,
+		Canary:         canary,
 	}
 	cfg.sanitize()
 	s, err := NewScanner(cfg, func(string, ...any) {})

@@ -132,11 +132,11 @@ func TestFingerprintFoldsDenylist(t *testing.T) {
 
 	// Ensure the denylist component is actually present (not just extra ":").
 	parts := strings.Split(fp1, ":")
-	if len(parts) < 4 {
-		t.Errorf("Fingerprint expected 4+ colon-separated parts, got %d: %q", len(parts), fp1)
+	if len(parts) < 5 {
+		t.Errorf("Fingerprint expected 5+ colon-separated parts, got %d: %q", len(parts), fp1)
 	}
-	last := parts[len(parts)-1]
-	if last == "" {
+	denyPart := parts[len(parts)-2]
+	if denyPart == "" {
 		t.Errorf("denylist FP component is empty in %q", fp1)
 	}
 }

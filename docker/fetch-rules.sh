@@ -351,13 +351,20 @@ if [ "$MAILSTRIX_PROFILE" = "mail" ]; then
     FILTER_PY="$(dirname "$0")/filter-rules.py"
     if [ -f "$FILTER_PY" ]; then
         echo "fetch-rules: mail profile — filtering fetched rules (filter-rules.py)"
-        find "$OUT" \( -name '*.yar' -o -name '*.yara' \) | while read -r f; do
+        # Read the file list from a temp file (NOT a pipe): a pipeline runs the
+        # while-loop in a subshell, so fail's `exit 1` would only kill the subshell
+        # and the script would continue and ship a partially-filtered bundle.
+        _flist="$(mktemp)"
+        find "$OUT" \( -name '*.yar' -o -name '*.yara' \) -print > "$_flist"
+        while read -r f; do
             if python3 "$FILTER_PY" "$f" "$f.filtered"; then
                 mv "$f.filtered" "$f"
             else
+                rm -f "$_flist"
                 fail "filter-rules failed on $(basename "$f")"
             fi
-        done
+        done < "$_flist"
+        rm -f "$_flist"
     else
         fail "MAILSTRIX_PROFILE=mail but filter-rules.py not found at $FILTER_PY"
     fi

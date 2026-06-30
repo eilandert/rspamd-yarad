@@ -83,6 +83,37 @@ func TestClean(t *testing.T) {
 	}
 }
 
+func TestLogOnlyMatchesExitClean(t *testing.T) {
+	for name, body := range map[string]string{
+		"canary": `{"matches":[{"rule":"Shadow_Hit","meta":{"mailstrix_canary":"1"}}]}`,
+		"allow":  `{"matches":[{"rule":"Noisy_Hit","meta":{"mailstrix_allow":"1"}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			f := writeTemp(t, eicar)
+			if code := run([]string{"-url", srv.URL, "-quiet", f}); code != 0 {
+				t.Fatalf("exit = %d, want 0 for log-only match", code)
+			}
+		})
+	}
+}
+
+func TestMixedLogOnlyAndActionableMatchesExitMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"matches":[{"rule":"Shadow","meta":{"mailstrix_canary":"1"}},{"rule":"Real"}]}`))
+	}))
+	defer srv.Close()
+	f := writeTemp(t, eicar)
+	if code := run([]string{"-url", srv.URL, "-quiet", f}); code != 1 {
+		t.Fatalf("exit = %d, want 1 when any actionable match remains", code)
+	}
+}
+
 func TestFailOpen(t *testing.T) {
 	srv := fakeYarad(t, nil, nil)
 	url := srv.URL

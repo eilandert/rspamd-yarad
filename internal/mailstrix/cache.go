@@ -12,7 +12,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Cache stores scan verdicts keyed by SHA256(body). A YARA verdict is a pure
+// Cache stores scan verdicts keyed by a Fingerprint-prefixed streamDedupKey: a
+// non-cryptographic 128-bit xxhash of the body (scanner.go), NOT a crypto hash.
+// This is a dedup key, not collision-resistant — random collision is negligible
+// at 128 bits, but a deliberate collision against a pre-seeded clean entry could
+// be served the clean verdict. Accepted threat model: the cache is process-local
+// (or a trusted shared Redis), not attacker-writable. A YARA verdict is a pure
 // function of the scanned bytes and the rule set, so unlike gozer's collaborative
 // verdicts there is nothing to invalidate per-message — entries only expire by
 // TTL. On a rules reload the whole cache is dropped (Flush) since old verdicts
